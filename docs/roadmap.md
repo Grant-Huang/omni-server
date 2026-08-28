@@ -10,8 +10,8 @@
 
 ```
                     ┌──────────────────────────────────────┐
-  workforce web ⇄ WS│            omni-server               │
-   （语音/文字）     │                                      │
+      omni 客户端 ⇄ WS│            omni-server               │
+      （语音/文字）    │                                      │
                     │  VoiceSession  ──────────────────────┼─⇄ DashScope Realtime
                     │   （解析事件、注入、合流）             │    （语音进语音出）
                     │        │                             │
@@ -55,7 +55,7 @@
 
 - [ ] **跑 E1**：复测记忆注入通道。这是唯一还能推翻现有架构的实验。
 - [ ] **跑 E7**：`response.cancel` → `session.update` → `response.create` 的自打断时序在同一条连接上稳不稳。不稳就退到「说完再追加」这一种合流方式。
-- [ ] **接上 workforce web 客户端**：客户端连 omni-server 而不是自己的 `server.py`；处理两个新事件 `omni.tool_result`（显示查询结果）和 `omni.interrupt`（丢掉已缓冲音频）。
+- [ ] **接上 omni 客户端**（2026-08-28 起，`Grant-Huang/omni`，从 workforce 分叉而来，见 README「相关仓库」）：客户端连 omni-server 而不是自己的 `server.py`；处理两个新事件 `omni.tool_result`（显示查询结果）和 `omni.interrupt`（丢掉已缓冲音频）。
 - [ ] **端到端实测**：真实语音、真实记忆、真实查询，量首字延迟。
 - [ ] **跑 E4**：注入长度 vs 首字延迟，把 `layers.py` 里的预算占位数字换成实测值。
 - [x] **存储落盘**（2026-08-28）。SQLite，`omni/persistence.py`，write-through 挂在 `MemoryStore` 的 `PersistHook` 上。`ephemeral` 层从不落盘（重启后没有会话可认领）。实测过真实进程重启：写入 → 关进程 → 重开进程 → `GET /api/memory` 拿回同一条记录。设计细节见 [`architecture.md`](architecture.md) §2.1。
