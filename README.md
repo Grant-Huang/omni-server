@@ -1,6 +1,6 @@
 # omni-server
 
-为 [`workforce`](https://github.com/Grant-Huang/workforce) 语音输入客户端提供服务的服务端项目。
+为 [`omni`](https://github.com/Grant-Huang/omni) 客户端提供服务的服务端项目。
 
 **当前状态：设计阶段，还没有代码。**
 
@@ -14,8 +14,9 @@
 
 ## 文档
 
-- [`docs/design-risks-review.md`](docs/design-risks-review.md) — **动手之前的风险盘点**：这个使用模式有哪些坑、哪些"看起来想清楚了"的地方其实站在没验证过的假设上、建议先跑哪几个实验。依据是 workforce 仓库过去两周积累的真实实测记录。
+- [`docs/design-risks-review.md`](docs/design-risks-review.md) — **动手之前的风险盘点**：这个使用模式有哪些坑、哪些"看起来想清楚了"的地方其实站在没验证过的假设上、建议先跑哪几个实验。依据是 omni 仓库过去两周积累的真实实测记录。
 
 ## 相关仓库
 
-- [`Grant-Huang/workforce`](https://github.com/Grant-Huang/workforce) — 语音输入客户端（网页版）。它的 `web-demo/README.md`、`docs/app-design.md`、`docs/roadmap-todo.md` 里有大量对接 Qwen-Omni-Realtime 的实测记录（记忆注入方式、限流行为、热词支持情况、`modalities` 行为等），是 omni-server 设计的主要输入，不要重新踩一遍。
+- [`Grant-Huang/omni`](https://github.com/Grant-Huang/omni) — 客户端（从 `workforce` 模板 fork 而来）。它的 `web-demo/README.md`、`docs/app-design.md`、`docs/roadmap-todo.md` 里有大量对接 Qwen-Omni-Realtime 的实测记录（记忆注入方式、限流行为、热词支持情况、`modalities` 行为等），是 omni-server 设计的主要输入，不要重新踩一遍；产品定义权威版本见 `omni/CLAUDE.md`。
+- [`Grant-Huang/workforce`](https://github.com/Grant-Huang/workforce) — 通用模板项目，`omni` 的上游模板，不带本产品的产品定义，仅在需要同步模板层通用能力时参考。
