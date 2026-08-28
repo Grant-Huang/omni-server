@@ -33,6 +33,7 @@ python3 -m unittest discover -s tests -p "test_*.py"
 - [`docs/memory-design.md`](docs/memory-design.md) — **记忆专题**：分层为什么是三个正交属性、个人记忆和群记忆「打通」到底现实不现实、人格层的写权限为什么是安全边界、自动 supersede 为什么默认要关。
 - [`docs/architecture.md`](docs/architecture.md) — **架构方案**：组件边界、数据结构（含 SQLite 持久化设计）、部署约束、技术选型记录。
 - [`docs/roadmap.md`](docs/roadmap.md) — 分阶段落地计划，阶段 1 的验收标准。
+- [`docs/family-app-architecture.md`](docs/family-app-architecture.md) — **「三代纽带」产品架构框架**：具体产品（家庭 AI 平台）落到 omni-server 上要新增哪些模块（照片/生成式回忆/连接建议/家庭作用域）、为什么这些新内容不该塞进 `MemoryEntry`、对前四份文档的具体修订清单。
 
 ## 相关仓库
 
