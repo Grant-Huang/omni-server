@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>客服中心 · 家里</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .support-hero { padding: 80px 0 0; text-align: center; }
+  .support-hero h1 { font-size: clamp(28px, 5vw, 38px); font-weight: 600; margin: 0; }
+  .search-box { max-width: 560px; margin: 32px auto 0; background: var(--paper-card); border: 1px solid var(--line); border-radius: 16px; padding: 16px 20px; display: flex; align-items: center; gap: 12px; }
+  .faq-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 20px; margin-top: 64px; }
+  .faq-card { background: var(--paper-card); border: 1px solid var(--line); border-radius: 18px; padding: 26px; }
+  .contact-band { margin: 56px 0 90px; background: var(--navy); border-radius: 24px; padding: 44px 40px; display: flex; flex-wrap: wrap; gap: 24px; align-items: center; justify-content: space-between; }
+  .contact-band .buttons { display: flex; gap: 14px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <nav class="site-nav">
+    <div class="brand">
+      <svg viewBox="0 0 64 64" width="28" height="28"><rect x="1" y="1" width="62" height="62" rx="18" fill="var(--terracotta)"/><path d="M12 33 L32 15 L52 33" stroke="var(--paper)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><line x1="32" y1="33" x2="32" y2="49" stroke="var(--paper)" stroke-width="5" stroke-linecap="round"/><circle cx="32" cy="25" r="5" fill="#F2C79A"/></svg>
+      <span class="serif">家里</span>
+    </div>
+    <div class="links">
+      <a href="index.html">产品</a>
+      <a href="support.html" class="current">客服中心</a>
+      <a href="download.html">下载</a>
+    </div>
+    <a href="download.html" class="btn-primary">免费开始使用</a>
+  </nav>
+</div>
+
+<div class="wrap support-hero">
+  <h1 class="serif">我们能帮你什么？</h1>
+  <p class="muted-2" style="font-size:15px; margin-top:12px;">关于家庭、隐私、语音对话和 Family Memory 的问题</p>
+
+  <div class="search-box">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ink-faint)" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <span class="muted-3" style="font-size:14.5px;">搜索问题，例如"如何邀请家人"</span>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="faq-grid">
+    <div class="faq-card">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--terracotta)" stroke-width="1.8"><path d="M17 20v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1"/><circle cx="9" cy="7" r="3.5"/><path d="M22 20v-1a4 4 0 0 0-3-3.9"/><path d="M16 3.6a3.5 3.5 0 0 1 0 6.8"/></svg>
+      <div style="font-size:16px; font-weight:700; margin-top:16px;">账号与家庭</div>
+      <p class="muted-2" style="font-size:13.5px; margin-top:8px; line-height:1.8;">如何创建家庭、邀请成员、修改关系与称呼</p>
+    </div>
+    <div class="faq-card">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--terracotta)" stroke-width="1.8"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+      <div style="font-size:16px; font-weight:700; margin-top:16px;">隐私与权限</div>
+      <p class="muted-2" style="font-size:13.5px; margin-top:8px; line-height:1.8;">谁能看到我的内容、如何设置分享范围</p>
+    </div>
+    <div class="faq-card">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--terracotta)" stroke-width="1.8"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+      <div style="font-size:16px; font-weight:700; margin-top:16px;">语音与对话</div>
+      <p class="muted-2" style="font-size:13.5px; margin-top:8px; line-height:1.8;">跟我说说话怎么用、打断和长对话的问题</p>
+    </div>
+    <div class="faq-card">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--terracotta)" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>
+      <div style="font-size:16px; font-weight:700; margin-top:16px;">家庭 Memory</div>
+      <p class="muted-2" style="font-size:13.5px; margin-top:8px; line-height:1.8;">什么会被保存、如何编辑或删除一段记忆</p>
+    </div>
+    <div class="faq-card">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--terracotta)" stroke-width="1.8"><rect x="2" y="6" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+      <div style="font-size:16px; font-weight:700; margin-top:16px;">账单与订阅</div>
+      <p class="muted-2" style="font-size:13.5px; margin-top:8px; line-height:1.8;">套餐说明、发票与退订流程</p>
+    </div>
+    <div class="faq-card" style="display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; background:var(--candidate-bg); border-style:dashed;">
+      <div class="muted-2" style="font-size:14px;">没找到你想要的答案？</div>
+      <div style="font-size:13px; color:var(--terracotta); margin-top:8px; font-weight:600;">联系我们 ↓</div>
+    </div>
+  </div>
+
+  <div class="contact-band">
+    <div>
+      <div class="serif" style="font-size:24px; font-weight:600; color:var(--paper);">还是没有解决？</div>
+      <div class="muted-3" style="font-size:14px; margin-top:8px; color:#9FB0BB;">工作日 9:00–21:00，我们会尽快回复你</div>
+    </div>
+    <div class="buttons">
+      <div class="btn-primary" style="background:var(--paper); color:var(--navy);">在线客服</div>
+      <a href="mailto:support@jia.family" class="btn-outline" style="border-color:#5A7183; color:var(--paper);">support@jia.family</a>
+    </div>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="wrap muted-3" style="font-size:12.5px;">© 2026 家里 · JIA Family AI</div>
+</footer>
+
+</body>
+</html>

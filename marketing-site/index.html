@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>家里 · JIA Family AI</title>
+<meta name="description" content="一个属于全家人的 AI，通过实时语音、照片和生成式 AI，让一家三代看见彼此、连接彼此，把共同生活变成可以传承的家庭记忆。">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .hero { padding: 90px 0 0; text-align: center; }
+  .hero h1 { font-size: clamp(34px, 6vw, 56px); font-weight: 700; margin: 26px 0 0; line-height: 1.3; }
+  .hero p { font-size: 17px; color: var(--ink-soft); margin: 22px auto 0; max-width: 600px; line-height: 1.9; }
+  .hero-actions { display: flex; align-items: center; justify-content: center; gap: 24px; margin-top: 36px; flex-wrap: wrap; }
+  .hero-visual { margin: 64px auto 0; max-width: 1000px; background: var(--paper-card); border: 1px solid var(--line); border-radius: 24px; box-shadow: 0 30px 70px rgba(43,36,32,0.10); overflow: hidden; }
+  .hero-visual .chrome { height: 34px; background: #EFE6D6; display: flex; align-items: center; padding: 0 16px; gap: 6px; }
+  .hero-visual .chrome span { width: 8px; height: 8px; border-radius: 50%; }
+  .hero-visual .body { display: flex; flex-wrap: wrap; padding: 32px 40px; gap: 28px; text-align: left; }
+  section { padding: 110px 0 0; }
+  section.entries, section.values { text-align: center; }
+  .entry-card { background: var(--paper-card); border: 1px solid var(--line); border-radius: 20px; padding: 32px; text-align: left; }
+  .values-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 48px; }
+  .values-grid > div { padding: 0 20px; }
+  .values-grid > div + div { border-left: 1px solid var(--line); }
+  @media (max-width: 680px) { .values-grid > div + div { border-left: none; border-top: 1px solid var(--line); padding-top: 24px; margin-top: 24px; } }
+  .mission-band { margin-top: 120px; background: var(--navy); padding: 90px 24px; text-align: center; }
+  .mission-band p { font-size: clamp(22px, 4vw, 30px); color: var(--paper); line-height: 1.8; max-width: 760px; margin: 0 auto; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <nav class="site-nav">
+    <div class="brand">
+      <svg viewBox="0 0 64 64" width="28" height="28"><rect x="1" y="1" width="62" height="62" rx="18" fill="var(--terracotta)"/><path d="M12 33 L32 15 L52 33" stroke="var(--paper)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><line x1="32" y1="33" x2="32" y2="49" stroke="var(--paper)" stroke-width="5" stroke-linecap="round"/><circle cx="32" cy="25" r="5" fill="#F2C79A"/></svg>
+      <span class="serif">家里</span>
+    </div>
+    <div class="links">
+      <a href="index.html" class="current">产品</a>
+      <a href="support.html">客服中心</a>
+      <a href="download.html">下载</a>
+    </div>
+    <a href="download.html" class="btn-primary">免费开始使用</a>
+  </nav>
+</div>
+
+<div class="wrap hero">
+  <div class="eyebrow" style="display:inline-block; padding:6px 16px; border-radius:999px; background:var(--candidate-bg); color:var(--candidate-text);">家庭 AI · Family Memory Layer</div>
+  <h1 class="serif">一个属于全家人的 AI</h1>
+  <p>通过实时语音、照片和生成式 AI，让一家三代看见彼此、连接彼此，把共同生活变成可以传承的家庭记忆。</p>
+  <div class="hero-actions">
+    <a href="download.html" class="btn-primary" style="padding:14px 32px; font-size:15px;">免费开始使用</a>
+    <a href="download.html" class="btn-outline">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="var(--ink)"><polygon points="6 4 20 12 6 20"/></svg>
+      观看 30 秒演示
+    </a>
+  </div>
+
+  <div class="hero-visual">
+    <div class="chrome">
+      <span style="background:#E0B090;"></span><span style="background:#E8CBA0;"></span><span style="background:#C9CBB0;"></span>
+    </div>
+    <div class="body">
+      <div style="flex:1; min-width:260px;">
+        <div class="serif" style="font-size:18px; font-weight:600;">今天的家</div>
+        <div style="margin-top:16px; background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:12px 14px; display:flex; align-items:center; gap:10px;">
+          <div class="avatar" style="width:30px;height:30px;background:#F0DCC4;"></div>
+          <div style="font-size:13px;">妈妈 · 今天去公园走了一圈</div>
+        </div>
+        <div style="margin-top:10px; background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:12px 14px; display:flex; align-items:center; gap:10px;">
+          <div class="avatar" style="width:30px;height:30px;background:#D9C7DA;"></div>
+          <div style="font-size:13px;">女儿 · 刚到东京</div>
+        </div>
+        <div style="margin-top:10px; background:var(--paper); border:1.5px solid var(--terracotta); border-radius:12px; padding:12px 14px;">
+          <div style="font-size:11px; color:var(--terracotta); font-weight:700;">AI 发现</div>
+          <div style="font-size:13px; margin-top:4px;">你女儿去了东京，爸爸年轻时也去过 → 问问爸爸</div>
+        </div>
+      </div>
+      <div style="flex:1; min-width:200px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px;">
+        <div style="position:relative; width:150px; height:150px; display:flex; align-items:center; justify-content:center;">
+          <div style="position:absolute; width:150px; height:150px; border-radius:50%; background:var(--terracotta); opacity:0.08;"></div>
+          <div style="position:absolute; width:100px; height:100px; border-radius:50%; background:var(--terracotta);"></div>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--paper)" stroke-width="1.8" style="position:relative;"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/></svg>
+        </div>
+        <div class="muted-2" style="font-size:13px;">跟我说说话</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<section class="entries">
+  <div class="wrap">
+    <div class="serif" style="font-size:32px; font-weight:600;">不同入口，同一个家</div>
+    <p class="muted-2" style="font-size:15px; margin-top:12px;">每个人从自己最自然的方式进入同一个家庭</p>
+
+    <div class="grid-auto" style="margin-top:48px;">
+      <div class="entry-card">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--terracotta)" stroke-width="1.8"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+        <div style="font-size:17px; font-weight:700; margin-top:18px;">跟我说说话</div>
+        <div class="muted-3" style="font-size:13.5px; margin-top:4px;">我 → AI</div>
+        <p class="muted-1" style="font-size:14px; margin-top:14px; line-height:1.8;">为父母长辈设计，打开、按一下、说话。不需要理解 AI，就能被理解。</p>
+      </div>
+      <div class="entry-card">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--terracotta)" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="8" y1="4" x2="8" y2="9"/></svg>
+        <div style="font-size:17px; font-weight:700; margin-top:18px;">今天的家</div>
+        <div class="muted-3" style="font-size:13.5px; margin-top:4px;">我 → 家人</div>
+        <p class="muted-1" style="font-size:14px; margin-top:14px; line-height:1.8;">AI 筛选的家庭动态，不是社交媒体式 Feed，只呈现真正值得知道的事。</p>
+      </div>
+      <div class="entry-card">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--terracotta)" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>
+        <div style="font-size:17px; font-weight:700; margin-top:18px;">家庭 Memory</div>
+        <div class="muted-3" style="font-size:13.5px; margin-top:4px;">我们 → 时间</div>
+        <p class="muted-1" style="font-size:14px; margin-top:14px; line-height:1.8;">把值得留下的时刻沉淀成家庭共同的记忆，未来的人可以重新认识今天的人。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="values">
+  <div class="wrap">
+    <div class="values-grid">
+      <div>
+        <div class="serif" style="font-size:26px; font-weight:700; color:var(--terracotta);">看见</div>
+        <p class="muted-1" style="font-size:14px; margin-top:12px; line-height:1.8;">看见彼此、看见生活、看见世界——让不同代际走进彼此原本看不到的世界。</p>
+      </div>
+      <div>
+        <div class="serif" style="font-size:26px; font-weight:700; color:var(--terracotta);">连接</div>
+        <p class="muted-1" style="font-size:14px; margin-top:12px; line-height:1.8;">AI 不替家人沟通，AI 帮家人找到沟通的理由。</p>
+      </div>
+      <div>
+        <div class="serif" style="font-size:26px; font-weight:700; color:var(--terracotta);">传承</div>
+        <p class="muted-1" style="font-size:14px; margin-top:12px; line-height:1.8;">让今天的生活，成为未来的记忆——回答的是「什么值得记住」。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="mission-band">
+  <p class="serif">"让每个家庭，都拥有一个真正懂这个家的 AI。"</p>
+  <div class="muted-3" style="font-size:13px; margin-top:20px; letter-spacing:0.06em; color:#9FB0BB;">家里 · JIA FAMILY AI 的愿景</div>
+</div>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="cols">
+      <div>
+        <div class="brand" style="font-size:15px;">
+          <svg viewBox="0 0 64 64" width="22" height="22"><rect x="1" y="1" width="62" height="62" rx="18" fill="var(--terracotta)"/><path d="M12 33 L32 15 L52 33" stroke="var(--paper)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><line x1="32" y1="33" x2="32" y2="49" stroke="var(--paper)" stroke-width="5" stroke-linecap="round"/><circle cx="32" cy="25" r="5" fill="#F2C79A"/></svg>
+          <span class="serif">家里</span>
+        </div>
+      </div>
+      <div>
+        <div class="eyebrow" style="margin-bottom:12px;">产品</div>
+        <div>跟我说说话<br>今天的家<br>家庭 Memory</div>
+      </div>
+      <div>
+        <div class="eyebrow" style="margin-bottom:12px;">支持</div>
+        <div><a href="support.html" style="color:inherit;">客服中心</a><br><a href="download.html" style="color:inherit;">下载</a></div>
+      </div>
+    </div>
+    <div class="muted-3" style="font-size:12.5px; border-top:1px solid var(--line); margin-top:32px; padding-top:24px;">© 2026 家里 · JIA Family AI</div>
+  </div>
+</footer>
+
+</body>
+</html>

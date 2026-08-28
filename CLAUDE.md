@@ -37,9 +37,11 @@ Level 0（用户主动）/ 1（当前对话追问）/ 2（基于当前事件建�
 
 ## 完整参考
 
-- `omni/CLAUDE.md`（产品定义权威版本）
+- `omni/CLAUDE.md`（产品定义权威版本，含平台形态：产品本体是手机浏览器 Web App，不是原生 App）
 - `omni/docs/product-definition-v0.1.md`
 - `omni/docs/product-definition-v1.0-design-requirement.md`
+- `omni/docs/brand-and-ui-design.md` — 品牌 Logo 与 UI 设计规范（色板/字体/组件/硬性产品规则），本仓库 `marketing-site/` 就是其中服务端三页面的落地实现，改视觉相关内容前先看这份，不要自己另定一套颜色
+- [`marketing-site/`](marketing-site/) — 产品宣传首页/客服中心/下载页，纯静态、可直接发布，见其中 README 的部署说明
 - [`docs/design-risks-review.md`](docs/design-risks-review.md) — 通用多用户语音后端的风险盘点
 - [`docs/memory-design.md`](docs/memory-design.md) — 分层记忆的设计依据
 - [`docs/architecture.md`](docs/architecture.md) — 组件边界、数据结构、部署约束
