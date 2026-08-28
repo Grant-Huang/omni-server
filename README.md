@@ -1,6 +1,14 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo-light.svg" alt="家里 · JIA Family AI" width="280">
+  </picture>
+</p>
+<p align="center"><em>服务端</em></p>
+
 # omni-server
 
-为 [`omni`](https://github.com/Grant-Huang/omni)（「三代纽带」产品的语音输入客户端）提供服务的服务端项目。
+「家里（JIA Family AI）」——一个属于全家人的 AI，通过实时语音、照片和生成式 AI，让一家三代看见彼此、连接彼此，把共同生活变成可以传承的家庭记忆。这是它的服务端，为客户端 [`omni`](https://github.com/Grant-Huang/omni) 提供服务。
 
 **当前状态**：阶段 1（单用户）的服务端骨架已经落地并有测试覆盖，记忆能持久化（SQLite，重启不丢）；还没有接过真实上游，见 [`docs/roadmap.md`](docs/roadmap.md) 的待做清单。
 
@@ -33,9 +41,9 @@ python3 -m unittest discover -s tests -p "test_*.py"
 - [`docs/memory-design.md`](docs/memory-design.md) — **记忆专题**：分层为什么是三个正交属性、个人记忆和群记忆「打通」到底现实不现实、人格层的写权限为什么是安全边界、自动 supersede 为什么默认要关。
 - [`docs/architecture.md`](docs/architecture.md) — **架构方案**：组件边界、数据结构（含 SQLite 持久化设计）、部署约束、技术选型记录。
 - [`docs/roadmap.md`](docs/roadmap.md) — 分阶段落地计划，阶段 1 的验收标准。
-- [`docs/family-app-architecture.md`](docs/family-app-architecture.md) — **「三代纽带」产品架构框架**：具体产品（家庭 AI 平台）落到 omni-server 上要新增哪些模块（照片/生成式回忆/连接建议/家庭作用域）、为什么这些新内容不该塞进 `MemoryEntry`、对前四份文档的具体修订清单。
+- [`docs/family-app-architecture.md`](docs/family-app-architecture.md) — **产品架构框架**：具体产品（家里）落到 omni-server 上要新增哪些模块（照片/生成式回忆/连接建议/家庭作用域）、为什么这些新内容不该塞进 `MemoryEntry`、对前四份文档的具体修订清单。写作时产品的正式名字还没定，文中用的是内部代号「三代纽带」，指的是同一个产品。
 
 ## 相关仓库
 
-- [`Grant-Huang/omni`](https://github.com/Grant-Huang/omni) — **当前的客户端**。2026-08-28 从 workforce 分叉出来，专属于「三代纽带」这个产品——以后这个产品的客户端改动提交到这里，不再提交到 workforce。目前是 workforce 的一份快照（同样的 web-demo，同样的实时语音协议代码），后续会围绕产品需求（家庭空间、照片上传、Feed 等）独立演化。
+- [`Grant-Huang/omni`](https://github.com/Grant-Huang/omni) — **当前的客户端**。2026-08-28 从 workforce 分叉出来，专属于「家里」这个产品——以后这个产品的客户端改动提交到这里，不再提交到 workforce。
 - [`Grant-Huang/workforce`](https://github.com/Grant-Huang/workforce) — omni 的上游来源，以后作为**通用项目**保留，不再承载这个产品的改动。它的 `web-demo/README.md`、`docs/app-design.md`、`docs/roadmap-todo.md` 里有大量对接 Qwen-Omni-Realtime 的实测记录（记忆注入方式、限流行为、热词支持情况、`modalities` 行为等）——这些是 omni-server 设计时的历史依据，下面几份文档里凡是引用"workforce 测过/记录过"的地方，说的都是这些记录，不用重新踩一遍，也不用因为客户端换了仓库就怀疑这些结论过时。
