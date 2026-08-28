@@ -40,4 +40,8 @@ Level 0（用户主动）/ 1（当前对话追问）/ 2（基于当前事件建�
 - `omni/CLAUDE.md`（产品定义权威版本）
 - `omni/docs/product-definition-v0.1.md`
 - `omni/docs/product-definition-v1.0-design-requirement.md`
-- [`docs/design-risks-review.md`](docs/design-risks-review.md)（本仓库现有的服务端设计风险盘点）
+- [`docs/design-risks-review.md`](docs/design-risks-review.md) — 通用多用户语音后端的风险盘点
+- [`docs/memory-design.md`](docs/memory-design.md) — 分层记忆的设计依据
+- [`docs/architecture.md`](docs/architecture.md) — 组件边界、数据结构、部署约束
+- [`docs/roadmap.md`](docs/roadmap.md) — 分阶段落地计划
+- [`docs/family-app-architecture.md`](docs/family-app-architecture.md) — **产品定了之后**的具体化：「三代纽带」需要在 omni-server 上新增哪些模块、跟已有分层记忆模型怎么接、对前四份文档的具体修订点——读服务端代码前先看这份，第 13 节列了需要产品侧拍板的开放问题（包括一处「Feed 默认展示」和「分享默认不共享」之间的真实矛盾，尚未有定论）
