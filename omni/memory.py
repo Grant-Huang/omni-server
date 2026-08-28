@@ -180,15 +180,30 @@ class Retrieved:
     score: float
 
 
+class PersistHook:
+    """Optional write-through hook. ``None`` (the default) keeps MemoryStore exactly
+    what it always was: pure in-memory, zero dependencies, safe to construct by the
+    hundred in a test file. Only a caller that wires an actual hook (omni.persistence)
+    pays for persistence, and the store itself stays ignorant of *how* -- it calls
+    ``on_add``/``on_supersede`` and does not know or care that SQLite is on the other
+    end."""
+
+    def on_add(self, entry: MemoryEntry) -> None: ...
+
+    def on_supersede(self, old_id: str, by_id: str, updated_at: float) -> None: ...
+
+
 class MemoryStore:
     def __init__(
         self,
         conflict_detector: ConflictDetector | None = None,
         clock: Callable[[], float] = time.time,
+        persist: PersistHook | None = None,
     ) -> None:
         self._entries: dict[str, MemoryEntry] = {}
         self._detect = conflict_detector or never_conflicts
         self._clock = clock
+        self._persist = persist
 
     # -- writing --------------------------------------------------------------------
     def add(
@@ -242,6 +257,8 @@ class MemoryStore:
             session_id=session_id if layer == "ephemeral" else None,
         )
         self._entries[entry.id] = entry
+        if self._persist is not None:
+            self._persist.on_add(entry)
         for old in self._conflicts(entry):
             self.supersede(old.id, entry.id)
         for old_id in supersedes:
@@ -265,6 +282,8 @@ class MemoryStore:
             )
         old.superseded_by = by_id
         old.updated_at = self._clock()
+        if self._persist is not None:
+            self._persist.on_supersede(old_id, by_id, old.updated_at)
 
     def _conflicts(self, new: MemoryEntry) -> list[MemoryEntry]:
         """Candidates the new entry supersedes.
@@ -325,6 +344,25 @@ class MemoryStore:
         """Everything, superseded and expired included -- for audit/traceability. The
         assistant never sees this; a user asking "when did I tell you that?" does."""
         return list(self._entries.values())
+
+    def restore(self, entries: Iterable[MemoryEntry]) -> int:
+        """Bulk-load already-resolved entries (from omni.persistence) at startup.
+
+        Deliberately bypasses ``add()``: the conflict detection and supersede logic
+        there is for *deciding* what supersedes what, and that decision was already
+        made and recorded the first time each entry was written. Re-running it on
+        reload would be redundant at best -- and with a non-default conflict_detector,
+        actively wrong, since it could supersede pairs a human or an LLM judgment
+        never asked to link. Ephemeral entries are dropped rather than restored: they
+        are session-bound by definition (see MemoryEntry.is_live), and no session from
+        a previous process is still open to bind them to."""
+        n = 0
+        for entry in entries:
+            if entry.layer == "ephemeral":
+                continue
+            self._entries[entry.id] = entry
+            n += 1
+        return n
 
     def retrieve(
         self,

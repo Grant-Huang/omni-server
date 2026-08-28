@@ -46,6 +46,11 @@ class Config:
     host: str = "127.0.0.1"
     port: int = 8770
     user_scope: str = "user:local"   # v0 is single-user; identity lands in phase 2
+    # Empty disables persistence outright (in-memory only, tests use this by always
+    # passing their own MemoryStore -- see server.make_app). A real path is what turns
+    # "restart and it's gone" into "restart and it's still there" -- see
+    # omni/persistence.py for why this is SQLite and not something heavier.
+    db_path: str = "omni_memory.db"
 
     @classmethod
     def from_env(cls, env=None) -> "Config":
@@ -59,4 +64,5 @@ class Config:
             host=env.get("HOST", "127.0.0.1"),
             port=int(env.get("PORT", "8770")),
             user_scope=env.get("OMNI_USER_SCOPE", "user:local"),
+            db_path=env.get("OMNI_DB_PATH", "omni_memory.db"),
         )

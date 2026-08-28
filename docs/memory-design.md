@@ -2,7 +2,7 @@
 
 **这份文档回答什么**：上一份 `design-risks-review.md` 里跟记忆相关的几条风险（R1 注入通道、R4 群记忆与提示注入、R6 人格层写权限、R8 一过性污染），加上一个单独被问到的问题——**个人私有记忆和他所在的群的记忆「打通」，现实吗？**
 
-**和代码的关系**：这份文档描述的模型已经落地在 `omni/layers.py`、`omni/memory.py`、`omni/instructions.py`、`omni/extraction.py` 里，并且有 70 个测试覆盖（`tests/`，全部离线运行，不打上游）。文档里每一节的编号，代码注释里会直接引用。
+**和代码的关系**：这份文档描述的模型已经落地在 `omni/layers.py`、`omni/memory.py`、`omni/instructions.py`、`omni/extraction.py` 里，并且有测试覆盖（`tests/`，全部离线运行，不打上游）。文档里每一节的编号，代码注释里会直接引用。系统级的组件边界和部署见 [`architecture.md`](architecture.md)；持久化设计见该文档 §2.1。
 
 ---
 

@@ -24,6 +24,7 @@ from . import layers as L
 from .config import BASE_INSTRUCTIONS, Config
 from .extraction import Extractor
 from .memory import MemoryStore, Provenance
+from .persistence import SqliteMemoryPersistence
 from .realtime import VoiceSession
 from .sidecar import Sidecar, memory_search_tool
 from .textmodel import DashScopeTextModel
@@ -35,6 +36,7 @@ routes = web.RouteTableDef()
 CONFIG = web.AppKey("config", Config)
 STORE = web.AppKey("store", MemoryStore)
 SESSIONS = web.AppKey("sessions", set)
+PERSISTENCE = web.AppKey("persistence", SqliteMemoryPersistence)
 
 
 @routes.get("/api/config")
@@ -204,12 +206,36 @@ async def _extract(app, turns, session_id, text_model) -> None:
 
 
 def make_app(config: Config | None = None, store: MemoryStore | None = None) -> web.Application:
+    """Persistence only engages when the caller lets ``store`` default -- a caller that
+    passes its own store (every test in tests/test_server.py does) opts out entirely,
+    which is what keeps the whole test suite in-memory and millisecond-fast without any
+    of them needing to know persistence exists."""
     app = web.Application()
-    app[CONFIG] = config or Config.from_env()
-    app[STORE] = store or MemoryStore()
+    cfg = config or Config.from_env()
+    app[CONFIG] = cfg
+
+    if store is not None:
+        app[STORE] = store
+    elif cfg.db_path:
+        persistence = SqliteMemoryPersistence(cfg.db_path)
+        fresh = MemoryStore(persist=persistence)
+        restored = fresh.restore(persistence.load_all())
+        log.info("restored %d memory entries from %s", restored, cfg.db_path)
+        app[STORE] = fresh
+        app[PERSISTENCE] = persistence
+        app.on_cleanup.append(_close_persistence)
+    else:
+        app[STORE] = MemoryStore()  # cfg.db_path == "" -- persistence explicitly off
+
     app[SESSIONS] = set()
     app.add_routes(routes)
     return app
+
+
+async def _close_persistence(app: web.Application) -> None:
+    persistence = app.get(PERSISTENCE)
+    if persistence is not None:
+        persistence.close()
 
 
 def main() -> None:

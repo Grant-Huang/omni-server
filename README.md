@@ -2,7 +2,7 @@
 
 为 [`workforce`](https://github.com/Grant-Huang/workforce) 语音输入客户端提供服务的服务端项目。
 
-**当前状态**：阶段 1（单用户）的服务端骨架已经落地并有测试覆盖；还没有接过真实上游，见 [`docs/roadmap.md`](docs/roadmap.md) 的待做清单。
+**当前状态**：阶段 1（单用户）的服务端骨架已经落地并有测试覆盖，记忆能持久化（SQLite，重启不丢）；还没有接过真实上游，见 [`docs/roadmap.md`](docs/roadmap.md) 的待做清单。
 
 ## 要做成什么样
 
@@ -31,7 +31,8 @@ python3 -m unittest discover -s tests -p "test_*.py"
 
 - [`docs/design-risks-review.md`](docs/design-risks-review.md) — 动手之前的风险盘点：十条风险、该先跑的实验。
 - [`docs/memory-design.md`](docs/memory-design.md) — **记忆专题**：分层为什么是三个正交属性、个人记忆和群记忆「打通」到底现实不现实、人格层的写权限为什么是安全边界、自动 supersede 为什么默认要关。
-- [`docs/roadmap.md`](docs/roadmap.md) — 整体架构与分阶段落地，阶段 1 的验收标准。
+- [`docs/architecture.md`](docs/architecture.md) — **架构方案**：组件边界、数据结构（含 SQLite 持久化设计）、部署约束、技术选型记录。
+- [`docs/roadmap.md`](docs/roadmap.md) — 分阶段落地计划，阶段 1 的验收标准。
 
 ## 相关仓库
 
