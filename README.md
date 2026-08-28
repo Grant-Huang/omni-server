@@ -35,6 +35,17 @@ QWEN_API_KEY=... QWEN_WORKSPACE_ID=llm-xxxx python3 -m omni.server
 python3 -m unittest discover -s tests -p "test_*.py"
 ```
 
+## 部署：这个仓库其实是两个独立的部署单元
+
+`omni/server.py`（这个 Python 后端）和 [`marketing-site/`](marketing-site/)（宣传首页/客服中心/下载页）**只是放在同一个 git 仓库里，不是同一个部署单元**：
+
+- **`omni/server.py`**：常驻进程，管实时语音 WebSocket 中转、拿着 API Key、读写 SQLite 记忆。必须部署成一个跑着的服务（云主机/容器），不能扔静态托管。
+- **`marketing-site/`**：纯静态 HTML/CSS，跟这个 Python 服务没有任何调用关系，独立部署到任意静态托管（Netlify/Vercel/GitHub Pages/自建 Nginx 都行）。具体步骤见 [`marketing-site/README.md`](marketing-site/README.md)。
+
+之所以放在同一个仓库，只是因为「宣传/客服/下载页」这三个页面归属服务端团队维护，跟代码在哪个 git 仓库里没有强绑定关系；千万不要把 `marketing-site/` 接进 `server.py` 的路由里——宣传页的发布节奏、流量模式、安全要求都跟拿着 API Key 的语音后端不一样，混在一起既没必要也不划算。
+
+对应地，客户端一侧（用户实际长期使用的产品界面）**始终在 [`omni`](https://github.com/Grant-Huang/omni) 仓库的 `mobile-demo/`**，不会因为它是"前端"就挪到这边来。
+
 ## 文档
 
 - [`docs/design-risks-review.md`](docs/design-risks-review.md) — 动手之前的风险盘点：十条风险、该先跑的实验。
