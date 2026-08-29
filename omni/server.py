@@ -104,6 +104,20 @@ async def write_memory(request):
     return web.json_response({"id": entry.id, "layer": entry.layer})
 
 
+@routes.post("/api/memory/session/{session_id}")
+async def end_session(request):
+    """Mark a session as ended. Extraction happens asynchronously in the background
+    when the WebSocket closes. This endpoint is a signal from the client that the
+    session has ended, and can be used to trigger extraction if needed for offline flows."""
+    session_id = request.match_info.get("session_id", "")
+    if not session_id:
+        return web.json_response({"error": "session_id required"}, status=400)
+    # Extraction is already triggered when the WebSocket closes;
+    # this endpoint exists for explicit confirmation and future features like polling.
+    log.info("session end signal: %s", session_id)
+    return web.json_response({"status": "session_ended", "session_id": session_id})
+
+
 @routes.get("/ws")
 async def voice_ws(request):
     cfg: Config = request.app[CONFIG]
