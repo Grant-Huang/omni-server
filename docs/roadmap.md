@@ -56,7 +56,8 @@
 - [ ] **跑 E1**：复测记忆注入通道。这是唯一还能推翻现有架构的实验。
 - [ ] **跑 E7**：`response.cancel` → `session.update` → `response.create` 的自打断时序在同一条连接上稳不稳。不稳就退到「说完再追加」这一种合流方式。
 - [x] **接上 omni 客户端**（2026-08-29）。`omni/web-demo` 的 `/ws`/`/api/config` 现在指向 omni-server（`static/omniServerConfig.js`），不再连自己的 `server.py`；客户端不再做记忆检索/instructions patch/决定要不要回复，旧的 `handleUserTurn`（连同只服务于它的 `saveIntent.js`/`memoryExtraction.js`）已经删除。新处理了三个事件：`omni.tool_result`（结构化查询结果，独立气泡渲染）、`omni.interrupt`（丢掉已缓冲音频/清空半成品气泡）、`omni.error`/`omni.upstream_error`/`omni.lookup_failed`（取代原来的 `relay.error`）。接上之后发现并修的两个缺口，都在 `omni/realtime.py`：(a) `VoiceSession` 原本只在语音 ASR 完成事件上触发 `begin_turn`，打字消息没有对应触发点——现在 `omni/server.py` 也拦截客户端自己发的 `conversation.item.create`（文字消息）来触发同一条路径；(b) 一句话被 VAD 拆成两段時，第二段的 `begin_turn` 原本不会取消第一段还在生成的回复（workforce 当年在客户端修过的同一个 bug，这次是服务端自己接管 `response.create` 后重新引入的）——现在 `begin_turn` 会在新回复开始前先取消仍在进行的上一个回复，新增 `omni.interrupt`（`reason: "overlapping_turn"`）通知客户端。还加了 CORS 支持（`omni/cors.py`）：客户端页面和 omni-server 现在是跨源的两个进程，`/api/config` 没有这层会被浏览器挡住。
-- [ ] **端到端实测**：真实语音、真实记忆、真实查询，量首字延迟。上面这轮验证过的是文字消息全链路（浏览器⇄omni-server⇄脚本化假上游），confirm 了协议线路本身没问题，但还没有对着真实 DashScope + 真实麦克风跑过。
+- [x] **接上真正的产品 UI**（2026-08-29）。上面那条接的是 `web-demo`（workforce 继承下来的 ChatGPT 式气泡界面，只是过渡用的测试台）；`omni/mobile-demo/talk.html`（`docs/brand-and-ui-design.md` 规定的真实产品界面）现在也接了同一个 omni-server——语音状态球（轻触开始/连接中/在听你说/在说）替代文字转写展示，是设计规范里明确要求的形态，不是简化。音频采集/播放复用 `web-demo` 已经验证过的 `AudioWorklet` 实现，没有另起一套。用 Playwright 伪造麦克风 + 脚本化假上游驱动过一遍完整状态机，WebSocket 帧级别确认了协议线路没问题。
+- [ ] **端到端实测**：真实语音、真实记忆、真实查询，量首字延迟。上面两轮验证的都是"浏览器⇄omni-server⇄脚本化假上游"，confirm 了协议线路本身没问题，但还没有对着真实 DashScope + 真实麦克风跑过。
 - [ ] **跑 E4**：注入长度 vs 首字延迟，把 `layers.py` 里的预算占位数字换成实测值。
 - [x] **存储落盘**（2026-08-28）。SQLite，`omni/persistence.py`，write-through 挂在 `MemoryStore` 的 `PersistHook` 上。`ephemeral` 层从不落盘（重启后没有会话可认领）。实测过真实进程重启：写入 → 关进程 → 重开进程 → `GET /api/memory` 拿回同一条记录。设计细节见 [`architecture.md`](architecture.md) §2.1。
 
