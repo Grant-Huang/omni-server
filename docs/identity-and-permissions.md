@@ -148,6 +148,9 @@ persons
   account_id      TEXT NULL REFERENCES accounts(id)
   created_by      TEXT REFERENCES persons(id)  -- 谁创建了这条 Person 记录（自己 or 家人代创建）
   created_at      REAL
+  onboarded_at    REAL NULL   -- 完成魔法三十秒的时间戳；NULL = 还在 onboarding 中
+                                -- （客户端文档 onboarding-and-identity-flow.md §2.2 需要这个字段
+                                --   支撑"中途关闭浏览器，重新打开时该恢复到哪一步"的判断）
 
 accounts
   id            TEXT PK
