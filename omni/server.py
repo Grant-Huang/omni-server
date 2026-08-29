@@ -26,6 +26,7 @@ from .cors import cors_middleware
 from .extraction import Extractor
 from .memory import MemoryStore, Provenance
 from .persistence import SqliteMemoryPersistence
+from .photos import PhotoStore, analyze_photo_with_vlm
 from .realtime import VoiceSession
 from .sidecar import Sidecar, memory_search_tool
 from .textmodel import DashScopeTextModel
@@ -38,6 +39,7 @@ CONFIG = web.AppKey("config", Config)
 STORE = web.AppKey("store", MemoryStore)
 SESSIONS = web.AppKey("sessions", set)
 PERSISTENCE = web.AppKey("persistence", SqliteMemoryPersistence)
+PHOTOS = web.AppKey("photos", PhotoStore)
 
 
 @routes.get("/api/config")
@@ -116,6 +118,56 @@ async def end_session(request):
     # this endpoint exists for explicit confirmation and future features like polling.
     log.info("session end signal: %s", session_id)
     return web.json_response({"status": "session_ended", "session_id": session_id})
+
+
+@routes.post("/api/photos/upload")
+async def upload_photo(request):
+    """Upload a photo for VLM analysis."""
+    cfg: Config = request.app[CONFIG]
+    photo_store: PhotoStore = request.app[PHOTOS]
+    text_model = request.app.get("text_model")
+
+    try:
+        data = await request.post()
+        if "photo" not in data:
+            return web.json_response({"error": "photo field required"}, status=400)
+
+        file_field = data["photo"]
+        file_data = file_field.file.read()
+        if not file_data:
+            return web.json_response({"error": "empty file"}, status=400)
+
+        # Store photo
+        photo = photo_store.add(cfg.user_scope, file_data)
+
+        # Analyze with VLM (async, but wait briefly for MVP)
+        caption, participants = await analyze_photo_with_vlm(
+            file_data, text_model, cfg.workspace_id
+        )
+        photo_store.update_caption(photo.id, caption, participants)
+
+        return web.json_response({
+            "id": photo.id,
+            "caption": caption,
+            "participants": participants,
+        })
+    except Exception as exc:
+        log.exception("photo upload failed")
+        return web.json_response({"error": str(exc)}, status=400)
+
+
+@routes.get("/api/photos")
+async def list_photos(request):
+    """Get all photos for the current user."""
+    cfg: Config = request.app[CONFIG]
+    photo_store: PhotoStore = request.app[PHOTOS]
+
+    try:
+        photos = photo_store.list_for_scope(cfg.user_scope)
+        return web.json_response([p.to_dict() for p in photos])
+    except Exception as exc:
+        log.exception("photo list failed")
+        return web.json_response({"error": str(exc)}, status=400)
 
 
 @routes.get("/ws")
@@ -272,6 +324,7 @@ def make_app(config: Config | None = None, store: MemoryStore | None = None) -> 
         app[STORE] = MemoryStore()  # cfg.db_path == "" -- persistence explicitly off
 
     app[SESSIONS] = set()
+    app[PHOTOS] = PhotoStore()
     app.add_routes(routes)
     return app
 
