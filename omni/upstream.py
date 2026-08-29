@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 
 log = logging.getLogger(__name__)
 
@@ -22,6 +23,13 @@ SHARED_WS_BASE = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
 
 
 def realtime_url(workspace_id: str, model: str) -> str:
+    # QWEN_WS_BASE is a test-only escape hatch (points DashScopeUpstream.connect at a
+    # local scripted fake instead of a real DashScope host) -- workforce's server.py has
+    # the same override for the same reason. Not read from Config: nothing about a real
+    # deployment should ever need it, so it does not appear in Config.from_env's surface.
+    override = os.environ.get("QWEN_WS_BASE")
+    if override:
+        return f"{override}?model={model}"
     if workspace_id:
         base = f"wss://{workspace_id}.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
     else:

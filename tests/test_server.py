@@ -8,7 +8,7 @@ from aiohttp.test_utils import AioHTTPTestCase
 from omni import layers as L
 from omni.config import Config
 from omni.memory import MemoryStore, Provenance
-from omni.server import make_app
+from omni.server import _client_text_turn, make_app
 
 
 class TestMemoryApi(AioHTTPTestCase):
@@ -54,6 +54,71 @@ class TestMemoryApi(AioHTTPTestCase):
                        written_by=L.HUMAN, source=Provenance(origin_scope="user:someone-else"))
         listed = await (await self.client.get("/api/memory")).json()
         self.assertEqual(listed, [])
+
+
+class TestCors(AioHTTPTestCase):
+    """omni/web-demo's fetch("/api/config") is cross-origin against omni-server
+    (docs/roadmap.md's "接上 omni 客户端") -- without these headers the request still
+    reaches the server, but the browser hides the response from the page's own JS."""
+
+    async def get_application(self):
+        return make_app(Config(user_scope="user:test", cors_origins=("https://example.com",)))
+
+    async def test_allowed_origin_gets_cors_headers(self):
+        resp = await self.client.get("/api/config", headers={"Origin": "https://example.com"})
+        self.assertEqual(resp.headers["Access-Control-Allow-Origin"], "https://example.com")
+
+    async def test_unlisted_origin_gets_no_cors_headers(self):
+        resp = await self.client.get("/api/config", headers={"Origin": "https://evil.example"})
+        self.assertNotIn("Access-Control-Allow-Origin", resp.headers)
+
+
+class TestClientTextTurn(unittest.TestCase):
+    """_client_text_turn is what lets a typed (not spoken) message trigger the same
+    memory-injection turn as a voice ASR completion (docs/roadmap.md's "接上 omni 客户端"
+    item) -- voice_ws has no ASR step to hang that trigger off of for text, so it has to
+    recognize the client's own conversation.item.create instead."""
+
+    def test_extracts_text_from_a_user_message_item(self):
+        event = {
+            "type": "conversation.item.create",
+            "item": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "你好"}]},
+        }
+        self.assertEqual(_client_text_turn(event), "你好")
+
+    def test_joins_multiple_input_text_parts(self):
+        event = {
+            "type": "conversation.item.create",
+            "item": {"type": "message", "role": "user", "content": [
+                {"type": "input_text", "text": "第一段"},
+                {"type": "input_text", "text": "第二段"},
+            ]},
+        }
+        self.assertEqual(_client_text_turn(event), "第一段 第二段")
+
+    def test_ignores_non_item_create_events(self):
+        self.assertIsNone(_client_text_turn({"type": "input_audio_buffer.append", "audio": "xxx"}))
+
+    def test_ignores_assistant_role_items(self):
+        event = {
+            "type": "conversation.item.create",
+            "item": {"type": "message", "role": "assistant", "content": [{"type": "input_text", "text": "hi"}]},
+        }
+        self.assertIsNone(_client_text_turn(event))
+
+    def test_ignores_audio_content_items(self):
+        event = {
+            "type": "conversation.item.create",
+            "item": {"type": "message", "role": "user", "content": [{"type": "input_audio", "audio": "xxx"}]},
+        }
+        self.assertIsNone(_client_text_turn(event))
+
+    def test_ignores_empty_text(self):
+        event = {
+            "type": "conversation.item.create",
+            "item": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "   "}]},
+        }
+        self.assertIsNone(_client_text_turn(event))
 
 
 if __name__ == "__main__":

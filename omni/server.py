@@ -22,6 +22,7 @@ from aiohttp import WSMsgType, web
 
 from . import layers as L
 from .config import BASE_INSTRUCTIONS, Config
+from .cors import cors_middleware
 from .extraction import Extractor
 from .memory import MemoryStore, Provenance
 from .persistence import SqliteMemoryPersistence
@@ -156,7 +157,20 @@ async def voice_ws(request):
     try:
         async for msg in client:
             if msg.type == WSMsgType.TEXT:
-                await upstream.send(json.loads(msg.data))
+                data = json.loads(msg.data)
+                await upstream.send(data)
+                # Voice turns begin from the upstream ASR-completion event (pump_upstream
+                # above); typed text has no ASR step, so it needs its own trigger here.
+                # Forwarding the item upstream first is still required -- DashScope has to
+                # have it in context before response.create references it.
+                text = _client_text_turn(data)
+                if text:
+                    # Only the upstream side of a turn is recorded by _record() above
+                    # (it never sees client-authored events) -- without this, extraction
+                    # would see the assistant's reply with no matching user turn for a
+                    # typed conversation.
+                    transcript.append(("user", text))
+                    await session.begin_turn(text)
             elif msg.type in (WSMsgType.ERROR, WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
                 break
     finally:
@@ -170,6 +184,22 @@ async def voice_ws(request):
         if not client.closed:
             await client.close()
     return client
+
+
+def _client_text_turn(data: dict) -> str | None:
+    """A client-sent ``conversation.item.create`` for a typed (not spoken) user
+    message, extracted to plain text -- or None if this event isn't one. Mirrors the
+    Realtime API's own item shape: ``item.content`` is a list of parts, and a typed
+    message's text lives in the ``input_text`` part(s)."""
+    if data.get("type") != "conversation.item.create":
+        return None
+    item = data.get("item") or {}
+    if item.get("type") != "message" or item.get("role") != "user":
+        return None
+    parts = item.get("content") or []
+    texts = [p.get("text", "") for p in parts if isinstance(p, dict) and p.get("type") == "input_text"]
+    text = " ".join(t for t in texts if t).strip()
+    return text or None
 
 
 def _record(transcript: list[tuple[str, str]], event: dict) -> None:
@@ -210,8 +240,8 @@ def make_app(config: Config | None = None, store: MemoryStore | None = None) -> 
     passes its own store (every test in tests/test_server.py does) opts out entirely,
     which is what keeps the whole test suite in-memory and millisecond-fast without any
     of them needing to know persistence exists."""
-    app = web.Application()
     cfg = config or Config.from_env()
+    app = web.Application(middlewares=[cors_middleware(cfg.cors_origins)])
     app[CONFIG] = cfg
 
     if store is not None:
