@@ -26,8 +26,10 @@ from .cors import cors_middleware
 from .extraction import Extractor
 from .memory import MemoryStore, Provenance
 from .persistence import SqliteMemoryPersistence
+from .photos import PhotoStore, analyze_photo_with_vlm
 from .realtime import VoiceSession
 from .sidecar import Sidecar, memory_search_tool
+from .stories import StoryStore, StoryGenerator
 from .textmodel import DashScopeTextModel
 from .upstream import DashScopeUpstream
 
@@ -38,6 +40,8 @@ CONFIG = web.AppKey("config", Config)
 STORE = web.AppKey("store", MemoryStore)
 SESSIONS = web.AppKey("sessions", set)
 PERSISTENCE = web.AppKey("persistence", SqliteMemoryPersistence)
+PHOTOS = web.AppKey("photos", PhotoStore)
+STORIES = web.AppKey("stories", StoryStore)
 
 
 @routes.get("/api/config")
@@ -102,6 +106,136 @@ async def write_memory(request):
     except (ValueError, PermissionError, KeyError) as exc:
         return web.json_response({"error": str(exc)}, status=400)
     return web.json_response({"id": entry.id, "layer": entry.layer})
+
+
+@routes.post("/api/memory/session/{session_id}")
+async def end_session(request):
+    """Mark a session as ended. Extraction happens asynchronously in the background
+    when the WebSocket closes. This endpoint is a signal from the client that the
+    session has ended, and can be used to trigger extraction if needed for offline flows."""
+    session_id = request.match_info.get("session_id", "")
+    if not session_id:
+        return web.json_response({"error": "session_id required"}, status=400)
+    # Extraction is already triggered when the WebSocket closes;
+    # this endpoint exists for explicit confirmation and future features like polling.
+    log.info("session end signal: %s", session_id)
+    return web.json_response({"status": "session_ended", "session_id": session_id})
+
+
+@routes.post("/api/photos/upload")
+async def upload_photo(request):
+    """Upload a photo for VLM analysis."""
+    cfg: Config = request.app[CONFIG]
+    photo_store: PhotoStore = request.app[PHOTOS]
+    text_model = request.app.get("text_model")
+
+    try:
+        data = await request.post()
+        if "photo" not in data:
+            return web.json_response({"error": "photo field required"}, status=400)
+
+        file_field = data["photo"]
+        file_data = file_field.file.read()
+        if not file_data:
+            return web.json_response({"error": "empty file"}, status=400)
+
+        # Store photo
+        photo = photo_store.add(cfg.user_scope, file_data)
+
+        # Analyze with VLM (async, but wait briefly for MVP)
+        caption, participants = await analyze_photo_with_vlm(
+            file_data, text_model, cfg.workspace_id
+        )
+        photo_store.update_caption(photo.id, caption, participants)
+
+        return web.json_response({
+            "id": photo.id,
+            "caption": caption,
+            "participants": participants,
+        })
+    except Exception as exc:
+        log.exception("photo upload failed")
+        return web.json_response({"error": str(exc)}, status=400)
+
+
+@routes.get("/api/photos")
+async def list_photos(request):
+    """Get all photos for the current user."""
+    cfg: Config = request.app[CONFIG]
+    photo_store: PhotoStore = request.app[PHOTOS]
+
+    try:
+        photos = photo_store.list_for_scope(cfg.user_scope)
+        return web.json_response([p.to_dict() for p in photos])
+    except Exception as exc:
+        log.exception("photo list failed")
+        return web.json_response({"error": str(exc)}, status=400)
+
+
+@routes.get("/api/stories")
+async def list_stories(request):
+    """Get all stories for the current user."""
+    story_store: StoryStore = request.app[STORIES]
+    try:
+        stories = story_store.list_all()
+        return web.json_response([s.to_dict() for s in stories])
+    except Exception as exc:
+        log.exception("story list failed")
+        return web.json_response({"error": str(exc)}, status=400)
+
+
+@routes.post("/api/stories/from-memory")
+async def create_story_from_memory(request):
+    """Generate a story from related memory entries."""
+    cfg: Config = request.app[CONFIG]
+    store: MemoryStore = request.app[STORE]
+    story_store: StoryStore = request.app[STORIES]
+
+    try:
+        body = await request.json()
+        entry_ids = body.get("entryIds", [])
+        title = body.get("title")
+        description = body.get("description")
+
+        if not entry_ids:
+            return web.json_response({"error": "entryIds required"}, status=400)
+
+        story = StoryGenerator.story_from_memory_entries(
+            entry_ids, store, title=title, description=description
+        )
+        if not story:
+            return web.json_response({"error": "no entries found"}, status=404)
+
+        story_store.add(story)
+        return web.json_response(story.to_dict())
+    except Exception as exc:
+        log.exception("story creation from memory failed")
+        return web.json_response({"error": str(exc)}, status=400)
+
+
+@routes.post("/api/stories/from-photos")
+async def create_story_from_photos(request):
+    """Generate a story from related photos."""
+    photo_store: PhotoStore = request.app[PHOTOS]
+    story_store: StoryStore = request.app[STORIES]
+
+    try:
+        body = await request.json()
+        photo_ids = body.get("photoIds", [])
+        title = body.get("title")
+
+        if not photo_ids:
+            return web.json_response({"error": "photoIds required"}, status=400)
+
+        story = StoryGenerator.story_from_photos(photo_ids, photo_store, title=title)
+        if not story:
+            return web.json_response({"error": "no photos found"}, status=404)
+
+        story_store.add(story)
+        return web.json_response(story.to_dict())
+    except Exception as exc:
+        log.exception("story creation from photos failed")
+        return web.json_response({"error": str(exc)}, status=400)
 
 
 @routes.get("/ws")
@@ -258,6 +392,8 @@ def make_app(config: Config | None = None, store: MemoryStore | None = None) -> 
         app[STORE] = MemoryStore()  # cfg.db_path == "" -- persistence explicitly off
 
     app[SESSIONS] = set()
+    app[PHOTOS] = PhotoStore()
+    app[STORIES] = StoryStore()
     app.add_routes(routes)
     return app
 
