@@ -44,7 +44,7 @@ python3 -m unittest discover -s tests -p "test_*.py"
 
 之所以放在同一个仓库，只是因为「宣传/客服/下载页」这三个页面归属服务端团队维护，跟代码在哪个 git 仓库里没有强绑定关系；千万不要把 `marketing-site/` 接进 `server.py` 的路由里——宣传页的发布节奏、流量模式、安全要求都跟拿着 API Key 的语音后端不一样，混在一起既没必要也不划算。
 
-对应地，客户端一侧（用户实际长期使用的产品界面）**始终在 [`omni`](https://github.com/Grant-Huang/omni) 仓库的 `mobile-demo/`**，不会因为它是"前端"就挪到这边来。
+对应地，客户端一侧（用户实际长期使用的产品界面）**始终在 [`omni`](https://github.com/Grant-Huang/omni) 仓库的 `app/`**（2026-08-29 从 `mobile-demo/` 改名——这是要发布上线的产品，不再是 demo），不会因为它是"前端"就挪到这边来。
 
 ## 文档
 
