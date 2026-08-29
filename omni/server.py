@@ -29,6 +29,7 @@ from .persistence import SqliteMemoryPersistence
 from .photos import PhotoStore, analyze_photo_with_vlm
 from .realtime import VoiceSession
 from .sidecar import Sidecar, memory_search_tool
+from .stories import StoryStore, StoryGenerator
 from .textmodel import DashScopeTextModel
 from .upstream import DashScopeUpstream
 
@@ -40,6 +41,7 @@ STORE = web.AppKey("store", MemoryStore)
 SESSIONS = web.AppKey("sessions", set)
 PERSISTENCE = web.AppKey("persistence", SqliteMemoryPersistence)
 PHOTOS = web.AppKey("photos", PhotoStore)
+STORIES = web.AppKey("stories", StoryStore)
 
 
 @routes.get("/api/config")
@@ -167,6 +169,72 @@ async def list_photos(request):
         return web.json_response([p.to_dict() for p in photos])
     except Exception as exc:
         log.exception("photo list failed")
+        return web.json_response({"error": str(exc)}, status=400)
+
+
+@routes.get("/api/stories")
+async def list_stories(request):
+    """Get all stories for the current user."""
+    story_store: StoryStore = request.app[STORIES]
+    try:
+        stories = story_store.list_all()
+        return web.json_response([s.to_dict() for s in stories])
+    except Exception as exc:
+        log.exception("story list failed")
+        return web.json_response({"error": str(exc)}, status=400)
+
+
+@routes.post("/api/stories/from-memory")
+async def create_story_from_memory(request):
+    """Generate a story from related memory entries."""
+    cfg: Config = request.app[CONFIG]
+    store: MemoryStore = request.app[STORE]
+    story_store: StoryStore = request.app[STORIES]
+
+    try:
+        body = await request.json()
+        entry_ids = body.get("entryIds", [])
+        title = body.get("title")
+        description = body.get("description")
+
+        if not entry_ids:
+            return web.json_response({"error": "entryIds required"}, status=400)
+
+        story = StoryGenerator.story_from_memory_entries(
+            entry_ids, store, title=title, description=description
+        )
+        if not story:
+            return web.json_response({"error": "no entries found"}, status=404)
+
+        story_store.add(story)
+        return web.json_response(story.to_dict())
+    except Exception as exc:
+        log.exception("story creation from memory failed")
+        return web.json_response({"error": str(exc)}, status=400)
+
+
+@routes.post("/api/stories/from-photos")
+async def create_story_from_photos(request):
+    """Generate a story from related photos."""
+    photo_store: PhotoStore = request.app[PHOTOS]
+    story_store: StoryStore = request.app[STORIES]
+
+    try:
+        body = await request.json()
+        photo_ids = body.get("photoIds", [])
+        title = body.get("title")
+
+        if not photo_ids:
+            return web.json_response({"error": "photoIds required"}, status=400)
+
+        story = StoryGenerator.story_from_photos(photo_ids, photo_store, title=title)
+        if not story:
+            return web.json_response({"error": "no photos found"}, status=404)
+
+        story_store.add(story)
+        return web.json_response(story.to_dict())
+    except Exception as exc:
+        log.exception("story creation from photos failed")
         return web.json_response({"error": str(exc)}, status=400)
 
 
@@ -325,6 +393,7 @@ def make_app(config: Config | None = None, store: MemoryStore | None = None) -> 
 
     app[SESSIONS] = set()
     app[PHOTOS] = PhotoStore()
+    app[STORIES] = StoryStore()
     app.add_routes(routes)
     return app
 
