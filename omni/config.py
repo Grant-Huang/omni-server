@@ -51,10 +51,14 @@ class Config:
     # "restart and it's gone" into "restart and it's still there" -- see
     # omni/persistence.py for why this is SQLite and not something heavier.
     db_path: str = "omni_memory.db"
+    # "*" is fine for local dev; a real deployment should set this explicitly (see
+    # omni/cors.py) once the client isn't just localhost.
+    cors_origins: tuple = ("*",)
 
     @classmethod
     def from_env(cls, env=None) -> "Config":
         env = env if env is not None else os.environ
+        cors_raw = env.get("CORS_ORIGINS", "*")
         return cls(
             api_key=env.get("QWEN_API_KEY", ""),
             workspace_id=env.get("QWEN_WORKSPACE_ID", ""),
@@ -65,4 +69,5 @@ class Config:
             port=int(env.get("PORT", "8770")),
             user_scope=env.get("OMNI_USER_SCOPE", "user:local"),
             db_path=env.get("OMNI_DB_PATH", "omni_memory.db"),
+            cors_origins=tuple(o.strip() for o in cors_raw.split(",") if o.strip()),
         )

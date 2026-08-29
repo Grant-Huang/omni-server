@@ -125,7 +125,7 @@ class VoiceSession:
         # reply is wrong.
         self.last_build: BuiltInstructions | None = None
         self.stats = {"patches_sent": 0, "patches_skipped": 0, "acks_timed_out": 0,
-                      "self_interrupts": 0, "appends": 0, "lookups": 0}
+                      "self_interrupts": 0, "appends": 0, "lookups": 0, "overlapping_turns": 0}
 
     # -- outbound ------------------------------------------------------------------
     async def _send_upstream(self, event: dict) -> None:
@@ -185,6 +185,22 @@ class VoiceSession:
             # The previous turn's lookup is now answering a question the user has moved
             # on from. Cancel rather than let it interrupt with stale content.
             prev.sidecar_task.cancel()
+
+        if prev and prev.response_in_flight:
+            # workforce measured real devices splitting one continuous utterance into
+            # two VAD segments (a mid-sentence pause outlasting silence_duration_ms):
+            # the server commits+transcribes a fragment, the user keeps talking, and a
+            # second transcription-completed lands while the first turn's response is
+            # still being generated. Without cancelling, both responses stream
+            # concurrently and their audio interleaves on the client -- same failure
+            # workforce's client-side response.cancel-on-new-transcript fixed, just
+            # triggered from the opposite side now that the server owns response.create.
+            self.stats["overlapping_turns"] += 1
+            await self._send_upstream({"type": "response.cancel"})
+            prev.response_in_flight = False
+            await self._notify_client(
+                {"type": "omni.interrupt", "turn_id": prev.turn_id, "reason": "overlapping_turn"}
+            )
 
         turn = TurnState(turn_id=uuid.uuid4().hex, transcript=transcript)
         self.turn = turn

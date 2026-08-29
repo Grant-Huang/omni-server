@@ -61,6 +61,10 @@ class TestTurnBasics(unittest.IsolatedAsyncioTestCase):
         for a no-op; this must not."""
         s, up, _ = build_session()
         await s.begin_turn("你好")
+        # First turn's response finishing before the second begins keeps this test
+        # about patch-skipping specifically, decoupled from the overlapping-turn
+        # cancellation covered separately below.
+        await s.handle_upstream_event({"type": "response.done"})
         await s.begin_turn("嗯")
         self.assertEqual(up.types(), ["session.update", "response.create", "response.create"])
         self.assertEqual(s.stats["patches_sent"], 1)
@@ -93,6 +97,34 @@ class TestTurnBasics(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(s.stats["patches_sent"], 2)  # re-sent, not skipped
         finally:
             rt.ACK_TIMEOUT_S = original
+
+    async def test_a_second_transcript_before_the_first_response_finishes_cancels_it(self):
+        """workforce measured real devices splitting one continuous utterance into two
+        VAD segments -- a second transcription-completed can land while the first
+        turn's response is still generating. Without cancelling, both responses stream
+        concurrently and interleave on the client."""
+        s, up, sink = build_session()
+        await s.begin_turn("前半句")
+        await s.handle_upstream_event({"type": "response.created"})
+        await s.begin_turn("前半句 后半句")
+        # Both turns retrieve nothing, so the rebuilt instructions are byte-identical
+        # and the second session.update is skipped (test_an_identical_rebuild_skips_
+        # the_patch_entirely covers that path) -- what's under test here is only that
+        # the overlap gets cancelled.
+        self.assertEqual(
+            up.types(),
+            ["session.update", "response.create", "response.cancel", "response.create"],
+        )
+        self.assertEqual(s.stats["overlapping_turns"], 1)
+        self.assertEqual(sink.of_type("omni.interrupt")[0]["reason"], "overlapping_turn")
+
+    async def test_a_turn_after_the_previous_response_already_finished_does_not_cancel(self):
+        s, up, _ = build_session()
+        await s.begin_turn("第一句")
+        await s.handle_upstream_event({"type": "response.done"})
+        await s.begin_turn("第二句")
+        self.assertNotIn("response.cancel", up.types())
+        self.assertEqual(s.stats["overlapping_turns"], 0)
 
 
 class TestPassthrough(unittest.IsolatedAsyncioTestCase):
@@ -187,7 +219,11 @@ class TestLookupMerge(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.1)
         self.assertTrue(first.sidecar_task.cancelled() or first.sidecar_task.done())
         self.assertEqual(sink.of_type("omni.tool_result"), [])
-        self.assertNotIn("response.cancel", up.types())
+        # Turn 1's response.create had already gone out (never acked response.done) when
+        # turn 2 began, so the overlapping-turn cancellation now cuts it off -- turn 1's
+        # own stale lookup result being discarded (asserted above) is a separate thing
+        # from this.
+        self.assertIn("response.cancel", up.types())
 
     async def test_the_structured_result_always_reaches_the_app(self):
         """Voice cannot show its sources; the app can. The display payload goes out

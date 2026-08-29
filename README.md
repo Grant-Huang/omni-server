@@ -10,7 +10,7 @@
 
 「家里（JIA Family AI）」——一个属于全家人的 AI，通过实时语音、照片和生成式 AI，让一家三代看见彼此、连接彼此，把共同生活变成可以传承的家庭记忆。这是它的服务端，为客户端 [`omni`](https://github.com/Grant-Huang/omni) 提供服务。
 
-**当前状态**：阶段 1（单用户）的服务端骨架已经落地并有测试覆盖，记忆能持久化（SQLite，重启不丢）；还没有接过真实上游，见 [`docs/roadmap.md`](docs/roadmap.md) 的待做清单。
+**当前状态**：阶段 1（单用户）的服务端骨架已经落地并有测试覆盖，记忆能持久化（SQLite，重启不丢），`omni` 客户端（`web-demo/`）已经接上（2026-08-29）——`/ws`+`/api/config`+CORS 都验证过（浏览器⇄omni-server⇄脚本化假上游，全链路跑通）；还没有接过真实 DashScope 上游，见 [`docs/roadmap.md`](docs/roadmap.md) 的待做清单。
 
 ## 要做成什么样
 
