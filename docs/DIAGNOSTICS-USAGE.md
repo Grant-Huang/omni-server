@@ -24,6 +24,55 @@ omni-server/
 
 ---
 
+## 客户端与服务端日志对照（关键技巧）
+
+### 通过 Session ID 关联日志
+
+客户端和服务端都记录同一个 `sessionId`，可以用来完整追踪一个对话的整个生命周期。
+
+**客户端**（浏览器 Console）：
+```
+[SERVER EVENT] session.created { sessionId: "abc123def456", ... }
+[SERVER EVENT] response.audio.delta { sessionId: "abc123def456", delta: "..." }
+[AUDIO DELTA] { sessionId: "abc123def456", bytes: 1024 }
+```
+
+**服务端**（logs/audio-diagnostics.log）：
+```
+[SESSION] connected session=abc123def456 user_scope=user:test
+[UPSTREAM] response.audio.delta session=abc123def456 size=1024B
+[CLIENT] response.audio.delta session=abc123def456 size=1024B status=OK
+```
+
+### 对照方法
+
+1. **打开浏览器 DevTools** (F12) → Console 标签页
+2. **运行一次完整对话**（说话 → 等待回复）
+3. **记下 `sessionId`**（从 `[SERVER EVENT]` 日志中获取）
+4. **在服务端日志中搜索该 ID**：
+   ```bash
+   grep "session=abc123def456" logs/audio-diagnostics.log
+   ```
+
+### 完整对比示例
+
+假设客户端显示：
+```
+[SERVER EVENT] session.created { sessionId: "xyz789", ... }
+[SERVER EVENT] response.audio.delta { sessionId: "xyz789", delta: "base64data" }
+[AUDIO DELTA] { sessionId: "xyz789", bytes: 2048 }
+```
+
+在服务端日志中搜索 `session=xyz789`：
+- ✅ 如果找到 `[CLIENT] response.audio.delta session=xyz789 size=2048B status=OK`
+  → 完整流程工作正常
+- ❌ 如果只找到 `[UPSTREAM] response.audio.delta session=xyz789`，但没有 `[CLIENT]`
+  → 问题在转发层（`to_client` 失败）
+- ❌ 如果完全找不到
+  → 问题在上游或连接层
+
+---
+
 ## 日志格式
 
 ```
