@@ -57,10 +57,18 @@ SELF_INTERRUPT_WINDOW_S = 2.5
 # failure than hanging the conversation.
 ACK_TIMEOUT_S = 4.0
 
+# How much of the user's partial transcript to wait for before firing a speculative
+# patch (docs/design-risks-review.md §8c). Too low wastes a round trip on "嗯"/"那个"
+# false starts; too high leaves less of the utterance to hide the round trip inside.
+# Not measured against real users yet -- a starting point, same status as
+# SELF_INTERRUPT_WINDOW_S above.
+SPECULATIVE_MIN_CHARS = 6
+
 _INTERCEPTED = {
     "session.updated",
     "response.created",
     "response.done",
+    "conversation.item.input_audio_transcription.delta",
     "conversation.item.input_audio_transcription.completed",
     "input_audio_buffer.speech_started",
     "error",
@@ -120,13 +128,24 @@ class VoiceSession:
         self.patcher = InstructionPatcher()
         self.turn: TurnState | None = None
         self._ack: asyncio.Future | None = None
+        # Serializes the send-and-await-ack section of _patch_instructions. Required,
+        # not defensive: workforce measured that firing a second session.update before
+        # the first is acked produces an empty reply (see _patch_instructions), and with
+        # warm_start + speculative injection + the per-turn patch all now able to fire
+        # close together, overlap is the common case rather than a rare race.
+        self._patch_lock = asyncio.Lock()
         self._background: set[asyncio.Task] = set()
+        # Speculative-injection state (docs/design-risks-review.md §8c): accumulated
+        # from ASR delta events while the user is still talking, reset per utterance.
+        self._partial_transcript = ""
+        self._speculative_fired = False
         # Observability for tests and for the app's debug view -- what actually got
         # injected each turn is the single most useful thing to be able to see when a
         # reply is wrong.
         self.last_build: BuiltInstructions | None = None
         self.stats = {"patches_sent": 0, "patches_skipped": 0, "acks_timed_out": 0,
-                      "self_interrupts": 0, "appends": 0, "lookups": 0, "overlapping_turns": 0}
+                      "self_interrupts": 0, "appends": 0, "lookups": 0, "overlapping_turns": 0,
+                      "speculative_patches": 0}
 
     # -- outbound ------------------------------------------------------------------
     async def _send_upstream(self, event: dict) -> None:
@@ -140,22 +159,62 @@ class VoiceSession:
             log_error("_notify_client", str(e), self.session_id, f"event_type={event.get('type')}")
             raise
 
-    async def _patch_instructions(self, dynamic: list[DynamicBlock] | None = None) -> None:
+    def _spawn_background(self, coro) -> asyncio.Task:
+        """Run a coroutine in the background, tracked so it can be waited on (tests'
+        drain_background) or torn down (close()) instead of leaking an untracked task."""
+        task = asyncio.create_task(coro)
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+        return task
+
+    async def drain_background(self) -> None:
+        """Wait for every currently-tracked background task to finish. Production code
+        never needs this -- background patches are deliberately fire-and-forget on the
+        critical path -- but tests need a deterministic point to assert from instead of
+        guessing how many event-loop ticks a patch takes."""
+        while self._background:
+            await asyncio.gather(*list(self._background), return_exceptions=True)
+
+    def start_warm_up(self) -> None:
+        """Kick off the stable-layer baseline (persona/policy/profile -- the ALWAYS
+        layers, docs/family-app-architecture.md's layers.py) in the background, right
+        after connecting. This round trip then overlaps with the client's own
+        session-setup wait instead of stacking onto the first turn's latency: by the
+        time the user finishes speaking, patcher.last_sent is usually already set to
+        the baseline, so the first turn's own patch has nothing new to send and is
+        skipped entirely (needs_patch in instructions.py). Call once, right after
+        construction."""
+        self._spawn_background(self._patch_instructions())
+
+    async def _patch_instructions(
+        self, dynamic: list[DynamicBlock] | None = None, *, query: str | None = None
+    ) -> None:
         """Rebuild, send only if changed, and wait for the ack before returning.
+
+        ``query`` overrides what drives retrieval. Defaults to the current turn's
+        transcript; warm_start passes nothing (only ALWAYS/SESSION layers are
+        query-independent, so an empty query still builds them), and speculative
+        injection passes the partial transcript accumulated so far, since there is no
+        ``self.turn`` yet when it fires.
 
         The wait is not optional: workforce measured that firing a second
         ``session.update`` before the first is acked produces an empty reply. The
         timeout is the escape hatch for an ack that never arrives; when it fires we
         invalidate the patcher so the next turn re-sends rather than assuming upstream
-        has content it may never have received.
+        has content it may never have received. The send-and-await section is guarded
+        by ``_patch_lock`` for the same reason: warm_start, speculative injection, and
+        the per-turn patch can now all be scheduled close together, and only one
+        session.update may be in flight at a time.
 
-        Note: Now runs in background (via asyncio.create_task) after response.create to
-        reduce ASR→response latency by ~4s. Instructions patch failures don't block the
-        response; the next turn will re-patch if needed.
+        Runs in the background (via _spawn_background) rather than blocking
+        response.create, to avoid re-adding the ~4-6s this was fixed to remove.
+        Instructions patch failures don't block the response; the next turn will
+        re-patch if needed.
         """
         try:
             turn = self.turn
-            query = turn.transcript if turn else ""
+            if query is None:
+                query = turn.transcript if turn else ""
             retrieved = self.store.retrieve(
                 query,
                 output_scope=self.user_scope,
@@ -165,24 +224,29 @@ class VoiceSession:
             built = build(self.base_instructions, retrieved, dynamic)
             self.last_build = built
 
-            if not self.patcher.needs_patch(built.text):
-                self.stats["patches_skipped"] += 1
-                return
+            async with self._patch_lock:
+                # Re-check inside the lock: another call queued ahead of us (e.g.
+                # warm_start) may have already sent this exact content while we were
+                # computing retrieval, which would otherwise make this a redundant
+                # duplicate send.
+                if not self.patcher.needs_patch(built.text):
+                    self.stats["patches_skipped"] += 1
+                    return
 
-            loop = asyncio.get_running_loop()
-            self._ack = loop.create_future()
-            await self._send_upstream({"type": "session.update", "session": {"instructions": built.text}})
-            self.stats["patches_sent"] += 1
-            try:
-                await asyncio.wait_for(asyncio.shield(self._ack), timeout=ACK_TIMEOUT_S)
-                self.patcher.mark_sent(built.text)
-                log_debug("instructions_patched", self.session_id, "bg_async=true")
-            except asyncio.TimeoutError:
-                self.stats["acks_timed_out"] += 1
-                self.patcher.invalidate()
-                log_debug("instructions_patch_timeout", self.session_id, "bg_async=true")
-            finally:
-                self._ack = None
+                loop = asyncio.get_running_loop()
+                self._ack = loop.create_future()
+                await self._send_upstream({"type": "session.update", "session": {"instructions": built.text}})
+                self.stats["patches_sent"] += 1
+                try:
+                    await asyncio.wait_for(asyncio.shield(self._ack), timeout=ACK_TIMEOUT_S)
+                    self.patcher.mark_sent(built.text)
+                    log_debug("instructions_patched", self.session_id, "bg_async=true")
+                except asyncio.TimeoutError:
+                    self.stats["acks_timed_out"] += 1
+                    self.patcher.invalidate()
+                    log_debug("instructions_patch_timeout", self.session_id, "bg_async=true")
+                finally:
+                    self._ack = None
         except Exception as e:
             log_error("_patch_instructions_bg", str(e), self.session_id)
 
@@ -219,15 +283,22 @@ class VoiceSession:
 
         turn = TurnState(turn_id=uuid.uuid4().hex, transcript=transcript)
         self.turn = turn
+        # The utterance this transcript came from is over; a stray delta from a
+        # different utterance should never bleed into the next one's speculative patch.
+        self._partial_transcript = ""
+        self._speculative_fired = False
 
         if self._sidecar is not None:
             turn.sidecar_task = asyncio.create_task(self._run_sidecar(turn))
 
         # Fire response.create immediately without waiting for _patch_instructions ack.
         # This reduces latency from ASR→response by ~4s (the ACK_TIMEOUT). Instructions
-        # will be patched in background; if patch fails, the next turn re-sends.
+        # will be patched in background; if patch fails, the next turn re-sends. Usually
+        # this patch finds nothing new to send: warm_start already covers the ALWAYS
+        # layers, and a speculative patch fired while the user was still talking
+        # (below) usually already covers the RETRIEVED layers for this query.
         await self._create_response()
-        asyncio.create_task(self._patch_instructions())
+        self._spawn_background(self._patch_instructions())
         turn.opened.set()
         return turn.turn_id
 
@@ -290,13 +361,13 @@ class VoiceSession:
         await self._notify_client({"type": "omni.interrupt", "turn_id": turn.turn_id, "reason": "lookup_result"})
         # Fire response.create immediately; patch instructions in background.
         await self._create_response()
-        asyncio.create_task(self._patch_instructions(turn.dynamic))
+        self._spawn_background(self._patch_instructions(turn.dynamic))
 
     async def _speak_followup(self, turn: TurnState) -> None:
         self.stats["appends"] += 1
         # Fire response.create immediately; patch instructions in background.
         await self._create_response()
-        asyncio.create_task(self._patch_instructions(turn.dynamic))
+        self._spawn_background(self._patch_instructions(turn.dynamic))
 
     # -- inbound -------------------------------------------------------------------
     async def handle_upstream_event(self, event: dict) -> None:
@@ -336,6 +407,25 @@ class VoiceSession:
                     await self._speak_followup(turn)
             return
 
+        if etype == "conversation.item.input_audio_transcription.delta":
+            # Speculative injection (docs/design-risks-review.md §8c): retrieval is pure
+            # in-memory lookup (memory.py:retrieve), so there is no cost to starting it
+            # on a partial transcript instead of waiting for speech_stopped -- only the
+            # session.update round trip is expensive, and firing it now lets that round
+            # trip run concurrently with the rest of the user's utterance instead of
+            # stacking onto the silence after they stop. Fired at most once per
+            # utterance (reset in begin_turn / speech_started): repeatedly re-patching
+            # on every delta would just queue redundant sends behind _patch_lock.
+            await self._notify_client(event)
+            chunk = event.get("delta") or event.get("transcript") or ""
+            if chunk:
+                self._partial_transcript += chunk
+            if not self._speculative_fired and len(self._partial_transcript) >= SPECULATIVE_MIN_CHARS:
+                self._speculative_fired = True
+                self.stats["speculative_patches"] += 1
+                self._spawn_background(self._patch_instructions(query=self._partial_transcript))
+            return
+
         if etype == "conversation.item.input_audio_transcription.completed":
             await self._notify_client(event)
             transcript = (event.get("transcript") or "").strip()
@@ -352,6 +442,9 @@ class VoiceSession:
                 if turn.response_in_flight:
                     await self._send_upstream({"type": "response.cancel"})
                     turn.response_in_flight = False
+            # A new utterance is starting; last one's speculative state doesn't apply.
+            self._partial_transcript = ""
+            self._speculative_fired = False
             await self._notify_client(event)
             return
 
@@ -365,6 +458,13 @@ class VoiceSession:
             turn.sidecar_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await turn.sidecar_task
+        # warm_start / speculative / per-turn patches can all still be in flight
+        # (awaiting an ack that will never come once upstream is closed below).
+        for task in list(self._background):
+            task.cancel()
+        for task in list(self._background):
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
         # Ephemeral memory is session-bound by construction; dropping it here is the
         # guarantee that "接下来都简短点" never becomes a permanent fact about the user.
         dropped = self.store.forget_session(self.session_id)

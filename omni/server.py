@@ -286,6 +286,10 @@ async def voice_ws(request):
     session_id = session.session_id
     log_session_event("connected", session_id, f"user_scope={cfg.user_scope}")
     request.app[SESSIONS].add(session)
+    # Send the ALWAYS-layer baseline (persona/policy/profile) now, in the background,
+    # so that round trip overlaps with the client's own session-setup handshake instead
+    # of stacking onto the first turn's latency (VoiceSession.start_warm_up).
+    session.start_warm_up()
 
     transcript: list[tuple[str, str]] = []
 
