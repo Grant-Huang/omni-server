@@ -50,9 +50,13 @@ def build_session(*, store=None, sidecar=None, auto_ack=True, clock=None, member
 
 class TestTurnBasics(unittest.IsolatedAsyncioTestCase):
     async def test_a_turn_patches_then_creates_a_response(self):
+        """response.create goes out first -- that's the whole point of the dfe2cba
+        latency fix -- and the patch that follows is a background task, so the test has
+        to drain it before asserting instead of assuming it already ran."""
         s, up, _ = build_session()
         await s.begin_turn("周二有什么安排")
-        self.assertEqual(up.types(), ["session.update", "response.create"])
+        await s.drain_background()
+        self.assertEqual(up.types(), ["response.create", "session.update"])
         self.assertEqual(s.stats["patches_sent"], 1)
 
     async def test_an_identical_rebuild_skips_the_patch_entirely(self):
@@ -61,12 +65,14 @@ class TestTurnBasics(unittest.IsolatedAsyncioTestCase):
         for a no-op; this must not."""
         s, up, _ = build_session()
         await s.begin_turn("你好")
+        await s.drain_background()
         # First turn's response finishing before the second begins keeps this test
         # about patch-skipping specifically, decoupled from the overlapping-turn
         # cancellation covered separately below.
         await s.handle_upstream_event({"type": "response.done"})
         await s.begin_turn("嗯")
-        self.assertEqual(up.types(), ["session.update", "response.create", "response.create"])
+        await s.drain_background()
+        self.assertEqual(up.types(), ["response.create", "session.update", "response.create"])
         self.assertEqual(s.stats["patches_sent"], 1)
         self.assertEqual(s.stats["patches_skipped"], 1)
 
@@ -74,9 +80,11 @@ class TestTurnBasics(unittest.IsolatedAsyncioTestCase):
         store = MemoryStore()
         s, up, _ = build_session(store=store)
         await s.begin_turn("周二有什么安排")
+        await s.drain_background()
         store.add("周二下午三点开会", layer="task", scope="user:grant",
                   written_by=L.EXTRACTION, source=prov())
         await s.begin_turn("周二有什么安排")
+        await s.drain_background()
         self.assertEqual(s.stats["patches_sent"], 2)
         self.assertIn("周二下午三点开会", up.instructions()[-1])
 
@@ -90,10 +98,12 @@ class TestTurnBasics(unittest.IsolatedAsyncioTestCase):
         try:
             s, up, _ = build_session(auto_ack=False)
             await s.begin_turn("周二有什么安排")
+            await s.drain_background()
             self.assertIn("response.create", up.types())
             self.assertEqual(s.stats["acks_timed_out"], 1)
             self.assertIsNone(s.patcher.last_sent)
             await s.begin_turn("周二有什么安排")
+            await s.drain_background()
             self.assertEqual(s.stats["patches_sent"], 2)  # re-sent, not skipped
         finally:
             rt.ACK_TIMEOUT_S = original
@@ -105,15 +115,17 @@ class TestTurnBasics(unittest.IsolatedAsyncioTestCase):
         concurrently and interleave on the client."""
         s, up, sink = build_session()
         await s.begin_turn("前半句")
+        await s.drain_background()
         await s.handle_upstream_event({"type": "response.created"})
         await s.begin_turn("前半句 后半句")
+        await s.drain_background()
         # Both turns retrieve nothing, so the rebuilt instructions are byte-identical
         # and the second session.update is skipped (test_an_identical_rebuild_skips_
         # the_patch_entirely covers that path) -- what's under test here is only that
         # the overlap gets cancelled.
         self.assertEqual(
             up.types(),
-            ["session.update", "response.create", "response.cancel", "response.create"],
+            ["response.create", "session.update", "response.cancel", "response.create"],
         )
         self.assertEqual(s.stats["overlapping_turns"], 1)
         self.assertEqual(sink.of_type("omni.interrupt")[0]["reason"], "overlapping_turn")
@@ -161,11 +173,24 @@ class TestLookupMerge(unittest.IsolatedAsyncioTestCase):
     async def test_a_result_arriving_early_interrupts_our_own_response(self):
         s, up, sink = await self._session_with_lookup()
         await s.begin_turn("我今天有什么安排")
+        # The turn's own patch (background) and the sidecar lookup are two independent
+        # tasks racing concurrently -- unlike response.cancel/response.create inside
+        # _self_interrupt itself, which stay strictly ordered because they're sequential
+        # awaits in one coroutine, there's no guarantee the turn's own session.update
+        # lands before or after the sidecar resolves. So this asserts what actually
+        # matters (both patches eventually go out, self-interrupt cancels and
+        # re-creates, the final instructions carry the result) rather than one exact
+        # global interleaving.
         await s.turn.sidecar_task
-        self.assertEqual(
-            up.types(),
-            ["session.update", "response.create", "response.cancel", "session.update", "response.create"],
-        )
+        await s.drain_background()
+        types = up.types()
+        self.assertEqual(types.count("response.create"), 2)
+        self.assertEqual(types.count("response.cancel"), 1)
+        self.assertEqual(types.count("session.update"), 2)
+        # cancel must still fall strictly between the two response.create calls --
+        # that ordering is guaranteed (see comment above), unlike the patches' position.
+        last_create = len(types) - 1 - types[::-1].index("response.create")
+        self.assertLess(types.index("response.cancel"), last_create)
         self.assertIn("今天下午三点有个会", up.instructions()[-1])
         self.assertEqual(s.stats["self_interrupts"], 1)
 
@@ -183,11 +208,15 @@ class TestLookupMerge(unittest.IsolatedAsyncioTestCase):
         clock = FakeClock()
         s, up, sink = await self._session_with_lookup(clock=clock)
         await s.begin_turn("我今天有什么安排")
+        # No drain_background() here: it would let the (undelayed) sidecar task race
+        # ahead and resolve before the clock advances, making _on_sidecar read
+        # speaking_for against the wrong instant and self-interrupt when it shouldn't.
         clock.advance(SELF_INTERRUPT_WINDOW_S + 1)
         await s.turn.sidecar_task
         self.assertNotIn("response.cancel", up.types())
         self.assertIsNotNone(s.turn.pending_append)
         await s.handle_upstream_event({"type": "response.done"})
+        await s.drain_background()
         self.assertEqual(s.stats["appends"], 1)
         self.assertIn("今天下午三点有个会", up.instructions()[-1])
 
@@ -214,9 +243,11 @@ class TestLookupMerge(unittest.IsolatedAsyncioTestCase):
         )
         s, up, sink = build_session(sidecar=sidecar)
         await s.begin_turn("第一个问题")
+        await s.drain_background()
         first = s.turn
         await s.begin_turn("第二个完全不同的问题")
         await asyncio.sleep(0.1)
+        await s.drain_background()
         self.assertTrue(first.sidecar_task.cancelled() or first.sidecar_task.done())
         self.assertEqual(sink.of_type("omni.tool_result"), [])
         # Turn 1's response.create had already gone out (never acked response.done) when
@@ -241,7 +272,8 @@ class TestLookupMerge(unittest.IsolatedAsyncioTestCase):
         s, up, sink = build_session(sidecar=sidecar)
         await s.begin_turn("今天天气不错啊")
         await s.turn.sidecar_task
-        self.assertEqual(up.types(), ["session.update", "response.create"])
+        await s.drain_background()
+        self.assertEqual(up.types(), ["response.create", "session.update"])
         self.assertEqual(sink.of_type("omni.tool_result"), [])
 
     async def test_a_failing_text_model_degrades_to_no_lookup(self):
@@ -251,7 +283,8 @@ class TestLookupMerge(unittest.IsolatedAsyncioTestCase):
         s, up, sink = build_session(sidecar=sidecar)
         await s.begin_turn("我今天有什么安排")
         await s.turn.sidecar_task
-        self.assertEqual(up.types(), ["session.update", "response.create"])
+        await s.drain_background()
+        self.assertEqual(up.types(), ["response.create", "session.update"])
         self.assertEqual(len(sink.of_type("omni.lookup_failed")), 1)
 
 
@@ -301,6 +334,117 @@ class TestMemorySearchTool(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await outbound("季度目标")).empty)
         private = memory_search_tool(store, output_scope="user:grant", memberships=["group:work"])
         self.assertFalse((await private("季度目标")).empty)
+
+
+class TestWarmStartAndSpeculation(unittest.IsolatedAsyncioTestCase):
+    """docs/design-risks-review.md §8: (c) send the ALWAYS-layer baseline before any
+    turn begins, and (b) start retrieval on the partial transcript instead of waiting
+    for speech_stopped, so these round trips overlap with time the user is already
+    spending (connecting, or still talking) instead of stacking onto the gap between
+    "user stops talking" and "AI starts answering"."""
+
+    async def test_warm_start_pre_seeds_the_baseline_so_the_first_turn_has_nothing_new(self):
+        s, up, _ = build_session()
+        s.start_warm_up()
+        await s.drain_background()
+        self.assertEqual(up.types(), ["session.update"])
+        self.assertEqual(s.stats["patches_sent"], 1)
+
+        await s.begin_turn("你好")
+        await s.drain_background()
+        # response.create went out; the turn's own patch found nothing new to say
+        # (warm_start already covers the ALWAYS layers) and was skipped.
+        self.assertEqual(up.types(), ["session.update", "response.create"])
+        self.assertEqual(s.stats["patches_sent"], 1)
+        self.assertEqual(s.stats["patches_skipped"], 1)
+
+    async def test_speculative_patch_fires_on_a_partial_transcript(self):
+        store = MemoryStore()
+        store.add("周二下午三点开会", layer="task", scope="user:grant",
+                  written_by=L.EXTRACTION, source=prov())
+        s, up, sink = build_session(store=store)
+        await s.handle_upstream_event({"type": "input_audio_buffer.speech_started"})
+        await s.handle_upstream_event({
+            "type": "conversation.item.input_audio_transcription.delta", "delta": "周二有什么安排",
+        })
+        await s.drain_background()
+        self.assertEqual(s.stats["speculative_patches"], 1)
+        self.assertEqual(up.types(), ["session.update"])
+        self.assertIn("周二下午三点开会", up.instructions()[-1])
+        # The delta still reaches the client -- speculative injection observes it, it
+        # doesn't consume it.
+        self.assertIn("conversation.item.input_audio_transcription.delta", sink.types())
+
+        # By the time the user actually finishes, the round trip already happened: the
+        # final transcript retrieves the same content, so the per-turn patch in
+        # begin_turn has nothing new to send.
+        await s.handle_upstream_event({
+            "type": "conversation.item.input_audio_transcription.completed",
+            "transcript": "周二有什么安排",
+        })
+        await s.drain_background()
+        self.assertEqual(up.types(), ["session.update", "response.create"])
+        self.assertEqual(s.stats["patches_skipped"], 1)
+
+    async def test_speculative_patch_fires_at_most_once_per_utterance(self):
+        s, up, _ = build_session()
+        await s.handle_upstream_event({"type": "input_audio_buffer.speech_started"})
+        await s.handle_upstream_event({
+            "type": "conversation.item.input_audio_transcription.delta", "delta": "周二有什么安",
+        })
+        await s.handle_upstream_event({
+            "type": "conversation.item.input_audio_transcription.delta", "delta": "排",
+        })
+        await s.drain_background()
+        self.assertEqual(s.stats["speculative_patches"], 1)
+
+    async def test_a_short_delta_below_the_threshold_does_not_fire(self):
+        s, up, _ = build_session()
+        await s.handle_upstream_event({"type": "input_audio_buffer.speech_started"})
+        await s.handle_upstream_event({
+            "type": "conversation.item.input_audio_transcription.delta", "delta": "嗯",
+        })
+        await s.drain_background()
+        self.assertEqual(s.stats["speculative_patches"], 0)
+        self.assertEqual(up.types(), [])
+
+    async def test_speech_started_resets_speculative_state_for_the_next_utterance(self):
+        s, up, _ = build_session()
+        await s.handle_upstream_event({"type": "input_audio_buffer.speech_started"})
+        await s.handle_upstream_event({
+            "type": "conversation.item.input_audio_transcription.delta", "delta": "第一句话的内容",
+        })
+        await s.drain_background()
+        self.assertEqual(s.stats["speculative_patches"], 1)
+
+        await s.handle_upstream_event({"type": "input_audio_buffer.speech_started"})
+        await s.handle_upstream_event({
+            "type": "conversation.item.input_audio_transcription.delta", "delta": "第二句话的内容",
+        })
+        await s.drain_background()
+        self.assertEqual(s.stats["speculative_patches"], 2)
+
+    async def test_concurrent_patches_do_not_cross_wire_their_acks(self):
+        """Regression test for _patch_lock: warm_start, speculative injection, and the
+        per-turn patch can now all be scheduled close together. Without the lock,
+        handle_upstream_event routes an incoming session.updated to whatever self._ack
+        currently points at -- so a second call's ack can resolve the first call's
+        future (or vice versa), leaving the other one to sit until ACK_TIMEOUT_S even
+        though its own ack genuinely arrived. Verified this reproduces (one call times
+        out) with the lock swapped for a no-op before adding this test."""
+        store = MemoryStore()
+        store.add("周二下午三点开会", layer="task", scope="user:grant",
+                  written_by=L.EXTRACTION, source=prov())
+        store.add("周三下午五点体检", layer="task", scope="user:grant",
+                  written_by=L.EXTRACTION, source=prov())
+        s, up, _ = build_session(store=store)
+        s._spawn_background(s._patch_instructions(query="周二安排"))
+        s._spawn_background(s._patch_instructions(query="周三安排"))
+        await s.drain_background()
+        self.assertEqual(s.stats["patches_sent"], 2)
+        self.assertEqual(s.stats["acks_timed_out"], 0)
+        self.assertIn("周二下午三点开会", up.instructions()[0])
+        self.assertIn("周三下午五点体检", up.instructions()[-1])
 
 
 class TestSessionClose(unittest.IsolatedAsyncioTestCase):

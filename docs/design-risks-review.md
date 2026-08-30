@@ -310,13 +310,17 @@ workforce 查过官方限流文档后确认了两件事（`web-demo/README.md`�
 
 其中 **ack 那 0.3 秒是自己给自己加的**，有几个具体可做的优化：
 
-**（a）不变就不发。** 现在的代码即使检索为空，也会发一次 `session.update` 把 instructions 重置回 `BASE_INSTRUCTIONS`（`app.js` `groundAndRespond()` 的 else 分支）。连续两轮都没检索到内容时，第二次这个 patch 完全是白发的——内容和上一次一模一样。**记住上一次实际下发的 instructions 字符串，相同就整个跳过 patch，直接 `response.create`**，省掉一整个往返。闲聊场景下这能覆盖相当比例的轮次。
+**（a）不变就不发。** ✅ 已实现（`InstructionPatcher.needs_patch`，`omni/instructions.py`）。检索为空或跟上次发的字节相同就整个跳过 patch，直接 `response.create`。
 
-**（b）稳定层放进初始 `session.update`，只让尾部变。** 见 3.3(a)。这不省网络，但让每轮变化的字节量最小化，也让人格描述保持逐字稳定。
+**（b）稳定层放进初始 `session.update`，只让尾部变。** ✅ 已实现（`VoiceSession.start_warm_up()`，`omni/realtime.py`；接线在 `server.py` 建连之后）。persona/policy/profile 这几个 `ALWAYS` 层在建连时就发一次、后台跑，跟客户端自己的 session-setup 握手重叠，不占用户能感知的等待时间；`patcher.mark_sent` 记住这次发的内容后，第一轮真正对话时如果这几层没变，(a) 会让第一轮的 patch 整个跳过——不再是"第一轮必发"。
 
-**（c）投机注入。** 不等 VAD 判定结束，在拿到部分转写的时候就开始检索并下发 patch。用户还在说最后半句的时候，往返就已经跑完了。风险是后半句改变了检索结果，需要一个"结果变了就补一次 patch"的兜底——但常见情况下这能把 0.3 秒整个藏进用户说话的时间里。**这是最有效的一条，也是最值得先做的。**
+**（c）投机注入。** ✅ 已实现（`VoiceSession.handle_upstream_event` 对 `conversation.item.input_audio_transcription.delta` 的处理，`omni/realtime.py`）。不等 VAD 判定结束，累计到 `SPECULATIVE_MIN_CHARS`（当前 6 字，未针对真实用户测过，起点值）就用部分转写触发一次检索+patch，每句话最多触发一次，在 `input_audio_buffer.speech_started` 时重置。最终转写到达时如果检索结果没变，(a) 会让 `begin_turn` 自己的 patch 跳过。
 
-**（d）查询的延迟靠「先开口、后补充」掩盖，不靠过渡语音频。** 改走文本模型 sidecar 之后，这件事变简单了：语音模型收到转写就正常开口（提示词里要求它遇到需要查记录的问题时先简短说一句"我看看"然后停下，**不要猜**），查询在旁边跑，结果回来再按 `memory-design.md` §9 的三种情况合流。不需要预渲染音频，也不需要 E3。仍然要给工具硬超时（建议 1.5 秒），超时就退回"我查一下待会儿告诉你"并转异步投递。
+> **实现时发现的一个坑，记在这里备查**：(b)/(c) 生效之前，`realtime.py` 里已经把"先发 `response.create`，`_patch_instructions` 放后台"这个顺序做了（commit `dfe2cba`），但这不足以避免 session.update 的往返叠加到用户感知的等待里——实测里 `response.created` 依然晚于 `session.updated` 到达，行为上跟"DashScope 收到两条消息后，先把 pending 的 session.update 应用完才真正开始生成"一致（协议未文档化，是从时间线反推的，没有官方确认）。也就是说，**光是本地调换发送顺序治标不治本，往返本身省不掉，只能把它挪到用户说话/连接建立的时间里**——这正是 (b)(c) 而不是"改发送顺序"能解决问题的原因。另外验证过 DashScope 的 `response.create` 事件目前只有 `type`/`event_id` 两个字段（[client-events 文档](https://help.aliyun.com/en/model-studio/client-events)），不像有些同类 Realtime API 那样支持单次响应级别的 `instructions` 覆盖——协议层面把两次往返合并成一次这条路目前走不通，(b)(c) 是当前 API 形态下能做到的上限，不是权宜之计。
+>
+> 实现顺带修了一个前置 bug：`asyncio.create_task` 起的后台 patch 任务此前完全没有被追踪（`VoiceSession._background` 声明了但没人用），单元测试因此假设了错误的同步顺序，`dfe2cba` 落地时有 10 个测试其实已经挂了但没人发现。现在这些任务由 `_spawn_background`/`drain_background` 统一管理，(b)(c) 引入的"暖启动 patch、投机 patch、每轮 patch 三者都可能同时在飞"也因此多了一个必要的前提：`_patch_lock` 把"发送 session.update 并等 ack"这段串行化——没有这把锁，两个并发 patch 会在 ack 路由上互相顶替（`self._ack` 是单个共享 future），实测会让其中一个白白等满 `ACK_TIMEOUT_S` 才超时，即使它的 ack 其实到了。
+
+**（d）查询的延迟靠「先开口、后补充」掩盖，不靠过渡语音频。** ✅ 已实现（`_self_interrupt`/`_speak_followup`，`omni/realtime.py`）。改走文本模型 sidecar 之后，这件事变简单了：语音模型收到转写就正常开口（提示词里要求它遇到需要查记录的问题时先简短说一句"我看看"然后停下，**不要猜**），查询在旁边跑，结果回来再按 `memory-design.md` §9 的三种情况合流。不需要预渲染音频，也不需要 E3。仍然要给工具硬超时（建议 1.5 秒），超时就退回"我查一下待会儿告诉你"并转异步投递。
 
 ---
 
