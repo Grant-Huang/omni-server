@@ -58,9 +58,10 @@ class DashScopeUpstream:
         import websockets
 
         url = realtime_url(sanitize_workspace_id(workspace_id), model)
-        ws = await websockets.connect(
-            url, additional_headers={"Authorization": f"Bearer {api_key}"}, open_timeout=open_timeout
-        )
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        ws = await websockets.connect(url, additional_headers=headers, open_timeout=open_timeout)
         return cls(ws)
 
     async def send(self, event: dict) -> None:
