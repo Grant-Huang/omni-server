@@ -148,34 +148,43 @@ class VoiceSession:
         timeout is the escape hatch for an ack that never arrives; when it fires we
         invalidate the patcher so the next turn re-sends rather than assuming upstream
         has content it may never have received.
+
+        Note: Now runs in background (via asyncio.create_task) after response.create to
+        reduce ASR→response latency by ~4s. Instructions patch failures don't block the
+        response; the next turn will re-patch if needed.
         """
-        turn = self.turn
-        query = turn.transcript if turn else ""
-        retrieved = self.store.retrieve(
-            query,
-            output_scope=self.user_scope,
-            memberships=self.memberships,
-            session_id=self.session_id,
-        )
-        built = build(self.base_instructions, retrieved, dynamic)
-        self.last_build = built
-
-        if not self.patcher.needs_patch(built.text):
-            self.stats["patches_skipped"] += 1
-            return
-
-        loop = asyncio.get_running_loop()
-        self._ack = loop.create_future()
-        await self._send_upstream({"type": "session.update", "session": {"instructions": built.text}})
-        self.stats["patches_sent"] += 1
         try:
-            await asyncio.wait_for(asyncio.shield(self._ack), timeout=ACK_TIMEOUT_S)
-            self.patcher.mark_sent(built.text)
-        except asyncio.TimeoutError:
-            self.stats["acks_timed_out"] += 1
-            self.patcher.invalidate()
-        finally:
-            self._ack = None
+            turn = self.turn
+            query = turn.transcript if turn else ""
+            retrieved = self.store.retrieve(
+                query,
+                output_scope=self.user_scope,
+                memberships=self.memberships,
+                session_id=self.session_id,
+            )
+            built = build(self.base_instructions, retrieved, dynamic)
+            self.last_build = built
+
+            if not self.patcher.needs_patch(built.text):
+                self.stats["patches_skipped"] += 1
+                return
+
+            loop = asyncio.get_running_loop()
+            self._ack = loop.create_future()
+            await self._send_upstream({"type": "session.update", "session": {"instructions": built.text}})
+            self.stats["patches_sent"] += 1
+            try:
+                await asyncio.wait_for(asyncio.shield(self._ack), timeout=ACK_TIMEOUT_S)
+                self.patcher.mark_sent(built.text)
+                log_debug("instructions_patched", self.session_id, "bg_async=true")
+            except asyncio.TimeoutError:
+                self.stats["acks_timed_out"] += 1
+                self.patcher.invalidate()
+                log_debug("instructions_patch_timeout", self.session_id, "bg_async=true")
+            finally:
+                self._ack = None
+        except Exception as e:
+            log_error("_patch_instructions_bg", str(e), self.session_id)
 
     async def _create_response(self) -> None:
         await self._send_upstream({"type": "response.create"})
@@ -214,8 +223,11 @@ class VoiceSession:
         if self._sidecar is not None:
             turn.sidecar_task = asyncio.create_task(self._run_sidecar(turn))
 
-        await self._patch_instructions()
+        # Fire response.create immediately without waiting for _patch_instructions ack.
+        # This reduces latency from ASR→response by ~4s (the ACK_TIMEOUT). Instructions
+        # will be patched in background; if patch fails, the next turn re-sends.
         await self._create_response()
+        asyncio.create_task(self._patch_instructions())
         turn.opened.set()
         return turn.turn_id
 
@@ -276,13 +288,15 @@ class VoiceSession:
         # The client must drop already-buffered audio too, or the cancelled sentence
         # keeps playing over the new one.
         await self._notify_client({"type": "omni.interrupt", "turn_id": turn.turn_id, "reason": "lookup_result"})
-        await self._patch_instructions(turn.dynamic)
+        # Fire response.create immediately; patch instructions in background.
         await self._create_response()
+        asyncio.create_task(self._patch_instructions(turn.dynamic))
 
     async def _speak_followup(self, turn: TurnState) -> None:
         self.stats["appends"] += 1
-        await self._patch_instructions(turn.dynamic)
+        # Fire response.create immediately; patch instructions in background.
         await self._create_response()
+        asyncio.create_task(self._patch_instructions(turn.dynamic))
 
     # -- inbound -------------------------------------------------------------------
     async def handle_upstream_event(self, event: dict) -> None:
