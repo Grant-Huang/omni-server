@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 SHARED_WS_BASE = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
 
 
-def realtime_url(workspace_id: str, model: str, api_key: str = "") -> str:
+def realtime_url(workspace_id: str, model: str) -> str:
     # QWEN_WS_BASE is a test-only escape hatch (points DashScopeUpstream.connect at a
     # local scripted fake instead of a real DashScope host) -- workforce's server.py has
     # the same override for the same reason. Not read from Config: nothing about a real
@@ -38,11 +38,7 @@ def realtime_url(workspace_id: str, model: str, api_key: str = "") -> str:
             "workforce measured silently dropping session.update messages"
         )
         base = SHARED_WS_BASE
-    # DashScope Realtime API requires api_key as query parameter, not Authorization header
-    url = f"{base}?model={model}"
-    if api_key:
-        url += f"&key={api_key}"
-    return url
+    return f"{base}?model={model}"
 
 
 def sanitize_workspace_id(raw: str) -> str:
@@ -61,8 +57,11 @@ class DashScopeUpstream:
     async def connect(cls, *, api_key: str, workspace_id: str, model: str, open_timeout: float = 10.0):
         import websockets
 
-        url = realtime_url(sanitize_workspace_id(workspace_id), model, api_key)
-        ws = await websockets.connect(url, open_timeout=open_timeout)
+        url = realtime_url(sanitize_workspace_id(workspace_id), model)
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        ws = await websockets.connect(url, additional_headers=headers, open_timeout=open_timeout)
         return cls(ws)
 
     async def send(self, event: dict) -> None:
