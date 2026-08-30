@@ -23,6 +23,7 @@ from aiohttp import WSMsgType, web
 from . import layers as L
 from .config import BASE_INSTRUCTIONS, Config
 from .cors import cors_middleware
+from .diagnostics import log_upstream_event, log_session_event, log_error
 from .extraction import Extractor
 from .memory import MemoryStore, Provenance
 from .persistence import SqliteMemoryPersistence
@@ -243,10 +244,13 @@ async def voice_ws(request):
     cfg: Config = request.app[CONFIG]
     store: MemoryStore = request.app[STORE]
 
+    session_id = "unknown"
+
     client = web.WebSocketResponse(max_msg_size=10 * 1024 * 1024)
     await client.prepare(request)
 
     if not cfg.api_key:
+        log_error("voice_ws", "QWEN_API_KEY not set", session_id)
         await client.send_str(json.dumps({"type": "omni.error", "message": "QWEN_API_KEY not set"}))
         await client.close()
         return client
@@ -255,8 +259,10 @@ async def voice_ws(request):
         upstream = await DashScopeUpstream.connect(
             api_key=cfg.api_key, workspace_id=cfg.workspace_id, model=cfg.realtime_model
         )
+        log_session_event("upstream_connected", session_id, f"model={cfg.realtime_model}")
     except Exception as exc:
         # Never leave the client sitting on "connecting…": say what failed.
+        log_error("voice_ws", f"upstream connect failed: {exc}", session_id)
         await client.send_str(json.dumps({"type": "omni.error", "message": f"upstream connect failed: {exc}"}))
         await client.close()
         return client
@@ -277,15 +283,21 @@ async def voice_ws(request):
         to_client=to_client,
         sidecar=sidecar,
     )
+    session_id = session.session_id
+    log_session_event("connected", session_id, f"user_scope={cfg.user_scope}")
     request.app[SESSIONS].add(session)
 
     transcript: list[tuple[str, str]] = []
 
     async def pump_upstream() -> None:
         while True:
-            event = await upstream.recv()
-            _record(transcript, event)
-            await session.handle_upstream_event(event)
+            try:
+                event = await upstream.recv()
+                _record(transcript, event)
+                await session.handle_upstream_event(event)
+            except Exception as e:
+                log_error("pump_upstream", str(e), session.session_id)
+                raise
 
     up_task = asyncio.create_task(pump_upstream())
     try:
@@ -311,6 +323,7 @@ async def voice_ws(request):
         up_task.cancel()
         await session.close()
         request.app[SESSIONS].discard(session)
+        log_session_event("closed", session.session_id, f"turns={len(transcript)}")
         # Extraction runs at the session boundary, not per turn: batching gives it the
         # whole conversation to judge from and nothing is waiting on the result.
         if transcript:

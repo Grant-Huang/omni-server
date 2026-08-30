@@ -41,6 +41,7 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Protocol, Sequence
 
 from . import layers as L
+from .diagnostics import log_upstream_event, log_session_event, log_client_send, log_error, log_debug
 from .instructions import BuiltInstructions, DynamicBlock, InstructionPatcher, build
 from .memory import MemoryStore
 from .sidecar import Sidecar, SidecarOutcome
@@ -132,7 +133,12 @@ class VoiceSession:
         await self.upstream.send(event)
 
     async def _notify_client(self, event: dict) -> None:
-        await self._to_client(event)
+        try:
+            await self._to_client(event)
+            log_client_send(event.get("type", "unknown"), self.session_id, success=True)
+        except Exception as e:
+            log_error("_notify_client", str(e), self.session_id, f"event_type={event.get('type')}")
+            raise
 
     async def _patch_instructions(self, dynamic: list[DynamicBlock] | None = None) -> None:
         """Rebuild, send only if changed, and wait for the ack before returning.
@@ -282,7 +288,13 @@ class VoiceSession:
     async def handle_upstream_event(self, event: dict) -> None:
         etype = event.get("type")
 
+        # Diagnostics: log all upstream events
+        size = len(str(event)) if event else 0
+        log_upstream_event(etype, size=size, session_id=self.session_id)
+
         if etype not in _INTERCEPTED:
+            # Pass through untouched, but log that we're forwarding it to client
+            log_session_event(f"forward_{etype}", self.session_id, "→ client")
             await self._notify_client(event)  # pass through untouched
             return
 
