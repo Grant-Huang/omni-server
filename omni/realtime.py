@@ -43,7 +43,7 @@ from typing import Any, Awaitable, Callable, Protocol, Sequence
 from . import layers as L
 from .diagnostics import log_upstream_event, log_session_event, log_client_send, log_error, log_debug
 from .instructions import BuiltInstructions, DynamicBlock, InstructionPatcher, build
-from .memory import MemoryStore
+from .memory import MemoryStore, Retrieved
 from .sidecar import Sidecar, SidecarOutcome
 
 # How long after response.create we are still willing to cut our own response off.
@@ -73,6 +73,25 @@ _INTERCEPTED = {
     "input_audio_buffer.speech_started",
     "error",
 }
+
+
+def _render_ambient(retrieved: dict[str, list[Retrieved]]) -> str:
+    """What the RETRIEVED layers (task/episodic/shared) already matched for this
+    turn's query, rendered for the sidecar router (Sidecar.run's ``already_known``).
+
+    Before this existed, the ambient layers and the sidecar both called
+    ``MemoryStore.retrieve`` independently and could both decide the same fact was
+    worth surfacing -- the router had no way to know the voice model's instructions
+    already carried it, and would trigger a self-interrupt or follow-up for
+    information that wasn't new. Telling it what's already there lets it say
+    "not needed" instead."""
+    lines = [
+        r.entry.text
+        for lspec in L.ORDERED_LAYERS
+        if lspec.injection == L.RETRIEVED
+        for r in (retrieved.get(lspec.name) or [])
+    ]
+    return "\n".join(f"- {t}" for t in lines)
 
 
 class Upstream(Protocol):
@@ -187,7 +206,11 @@ class VoiceSession:
         self._spawn_background(self._patch_instructions())
 
     async def _patch_instructions(
-        self, dynamic: list[DynamicBlock] | None = None, *, query: str | None = None
+        self,
+        dynamic: list[DynamicBlock] | None = None,
+        *,
+        query: str | None = None,
+        retrieved: dict[str, list[Retrieved]] | None = None,
     ) -> None:
         """Rebuild, send only if changed, and wait for the ack before returning.
 
@@ -196,6 +219,13 @@ class VoiceSession:
         query-independent, so an empty query still builds them), and speculative
         injection passes the partial transcript accumulated so far, since there is no
         ``self.turn`` yet when it fires.
+
+        ``retrieved`` lets a caller that already ran ``store.retrieve()`` for this
+        query hand the result straight through instead of paying for a second,
+        redundant call -- ``begin_turn`` does this because it also needs the same
+        retrieval to tell the sidecar router what's already ambiently known (see
+        ``_render_ambient``). Ignored if ``query`` is also given, since the two would
+        otherwise silently disagree about what was actually searched for.
 
         The wait is not optional: workforce measured that firing a second
         ``session.update`` before the first is acked produces an empty reply. The
@@ -213,14 +243,15 @@ class VoiceSession:
         """
         try:
             turn = self.turn
-            if query is None:
-                query = turn.transcript if turn else ""
-            retrieved = self.store.retrieve(
-                query,
-                output_scope=self.user_scope,
-                memberships=self.memberships,
-                session_id=self.session_id,
-            )
+            if retrieved is None or query is not None:
+                if query is None:
+                    query = turn.transcript if turn else ""
+                retrieved = self.store.retrieve(
+                    query,
+                    output_scope=self.user_scope,
+                    memberships=self.memberships,
+                    session_id=self.session_id,
+                )
             built = build(self.base_instructions, retrieved, dynamic)
             self.last_build = built
 
@@ -288,8 +319,19 @@ class VoiceSession:
         self._partial_transcript = ""
         self._speculative_fired = False
 
+        # Retrieved once, used twice: this is what instructions.build() turns into the
+        # RETRIEVED-layer (task/episodic/shared) section below, and also what tells the
+        # sidecar router what's already ambiently known (_render_ambient) so it doesn't
+        # independently re-decide the same fact is worth a self-interrupt.
+        retrieved = self.store.retrieve(
+            transcript, output_scope=self.user_scope,
+            memberships=self.memberships, session_id=self.session_id,
+        )
+
         if self._sidecar is not None:
-            turn.sidecar_task = asyncio.create_task(self._run_sidecar(turn))
+            turn.sidecar_task = asyncio.create_task(
+                self._run_sidecar(turn, _render_ambient(retrieved))
+            )
 
         # Fire response.create immediately without waiting for _patch_instructions ack.
         # This reduces latency from ASR→response by ~4s (the ACK_TIMEOUT). Instructions
@@ -298,12 +340,12 @@ class VoiceSession:
         # layers, and a speculative patch fired while the user was still talking
         # (below) usually already covers the RETRIEVED layers for this query.
         await self._create_response()
-        self._spawn_background(self._patch_instructions())
+        self._spawn_background(self._patch_instructions(retrieved=retrieved))
         turn.opened.set()
         return turn.turn_id
 
-    async def _run_sidecar(self, turn: TurnState) -> None:
-        outcome = await self._sidecar.run(turn.turn_id, turn.transcript)
+    async def _run_sidecar(self, turn: TurnState, already_known: str) -> None:
+        outcome = await self._sidecar.run(turn.turn_id, turn.transcript, already_known=already_known)
         # The lookup races the voice response; only the *merge decision* has to wait for
         # the response to exist.
         await turn.opened.wait()

@@ -14,6 +14,13 @@ Every result carries two payloads on purpose:
   limitation of voice: a spoken reply cannot show its sources, so the user has no way to
   check it. The app can show the rows the answer came from while the voice gives the
   summary.
+
+``Sidecar.run``'s ``already_known`` tells the router what the ambient RETRIEVED layers
+(task/episodic/shared -- see instructions.py/layers.py) already put in the voice
+model's instructions this turn. Before this parameter existed, the ambient layers and
+this router both called ``MemoryStore.retrieve`` independently and could both decide
+the same fact was worth surfacing -- the router would then trigger a needless
+self-interrupt (or a redundant follow-up) for something the model already had.
 """
 from __future__ import annotations
 
@@ -31,8 +38,12 @@ ROUTER_PROMPT = """你是一个语音助手的调度器。用户刚说了一句�
 可用的查询工具：
 {tool_list}
 
+语音模型这一轮已经知道的背景信息（已经在它的提示词里，不用你再查一遍）：
+{already_known}
+
 判断标准：
-- 需要查具体记录（日程、承诺、过去说过的某件事、某个数字）→ 选一个工具，给出检索用的关键词。
+- 需要查具体记录（日程、承诺、过去说过的某件事、某个数字），且上面「已经知道」没有覆盖 → 选一个工具，给出检索用的关键词。
+- 上面「已经知道」已经包含能回答这句话的内容 → 不需要查，语音模型自己会用，不用再打断它。
 - 闲聊、问候、常识问题、纯粹的情绪表达、用户只是在陈述而不是提问 → 不需要查。
 - 拿不准就选不查——多查一次的代价是打断用户，不查的代价只是回答笼统一点。
 
@@ -73,12 +84,13 @@ class Sidecar:
         self._tools = tools
         self._clock = clock
 
-    async def run(self, turn_id: str, transcript: str) -> SidecarOutcome:
+    async def run(self, turn_id: str, transcript: str, *, already_known: str = "") -> SidecarOutcome:
         started = self._clock()
         tool_list = "\n".join(f"- {name}" for name in sorted(self._tools)) or "- （无）"
         try:
             raw = await self._model.complete(
-                ROUTER_PROMPT.format(tool_list=tool_list), transcript, json_mode=True
+                ROUTER_PROMPT.format(tool_list=tool_list, already_known=already_known or "（无）"),
+                transcript, json_mode=True,
             )
             decision = parse_json_object(raw)
         except (TextModelError, OSError) as exc:
