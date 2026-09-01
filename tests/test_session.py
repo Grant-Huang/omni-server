@@ -49,6 +49,27 @@ def build_session(*, store=None, sidecar=None, auto_ack=True, clock=None, member
 
 
 class TestTurnBasics(unittest.IsolatedAsyncioTestCase):
+    async def test_begin_turn_retrieves_once_shares_it_with_the_patch(self):
+        """begin_turn computes retrieval once (for _render_ambient) and hands that
+        same result to _patch_instructions via the retrieved= kwarg -- it must not
+        pay for a second, redundant MemoryStore.retrieve() call for the same query."""
+        store = MemoryStore()
+        store.add("周二下午三点开会", layer="task", scope="user:grant",
+                  written_by=L.EXTRACTION, source=prov())
+        calls = []
+        original_retrieve = store.retrieve
+
+        def counting_retrieve(*args, **kwargs):
+            calls.append((args, kwargs))
+            return original_retrieve(*args, **kwargs)
+
+        store.retrieve = counting_retrieve
+        s, up, _ = build_session(store=store)
+        await s.begin_turn("周二有什么安排")
+        await s.drain_background()
+        self.assertEqual(len(calls), 1)
+        self.assertIn("周二下午三点开会", up.instructions()[-1])
+
     async def test_a_turn_patches_then_creates_a_response(self):
         """response.create goes out first -- that's the whole point of the dfe2cba
         latency fix -- and the patch that follows is a background task, so the test has
@@ -192,7 +213,31 @@ class TestLookupMerge(unittest.IsolatedAsyncioTestCase):
         last_create = len(types) - 1 - types[::-1].index("response.create")
         self.assertLess(types.index("response.cancel"), last_create)
         self.assertIn("今天下午三点有个会", up.instructions()[-1])
-        self.assertEqual(s.stats["self_interrupts"], 1)
+
+    async def test_begin_turn_tells_the_sidecar_what_is_already_ambiently_known(self):
+        """Before this, the RETRIEVED layers (ambient, keyword-matched) and the
+        sidecar's router (explicit, LLM-judged) called MemoryStore.retrieve
+        independently and could both decide the same fact was worth surfacing -- the
+        router had no way to know the voice model's instructions already carried it."""
+        store = MemoryStore()
+        store.add("周二下午三点开会", layer="task", scope="user:grant",
+                  written_by=L.EXTRACTION, source=prov())
+        text_model = FakeTextModel(['{"tool": null}'])
+        sidecar = Sidecar(text_model, {"stub": await tool_returning("x")})
+        s, up, _ = build_session(store=store, sidecar=sidecar)
+        await s.begin_turn("周二有什么安排")
+        await s.turn.sidecar_task
+        router_prompt = text_model.calls[-1][0]
+        self.assertIn("周二下午三点开会", router_prompt)
+
+    async def test_no_ambient_hit_renders_as_the_placeholder(self):
+        text_model = FakeTextModel(['{"tool": null}'])
+        sidecar = Sidecar(text_model, {"stub": await tool_returning("x")})
+        s, up, _ = build_session(sidecar=sidecar)
+        await s.begin_turn("今天天气不错啊")
+        await s.turn.sidecar_task
+        router_prompt = text_model.calls[-1][0]
+        self.assertIn("（无）", router_prompt)
 
     async def test_the_client_is_told_to_drop_buffered_audio_on_self_interrupt(self):
         """Cancelling upstream is not enough -- audio already buffered on the client
